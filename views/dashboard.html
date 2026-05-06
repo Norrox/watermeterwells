@@ -128,11 +128,11 @@
             </div>
             <div class="sidebar-nav">
                 <a class="active" data-page="dashboard"><span class="icon">&#9632;</span> Dashboard</a>
-                <a data-page="opcua"><span class="icon">&#9881;</span> OPC UA</a>
-                <a data-page="modbus"><span class="icon">&#9881;</span> Modbus TCP</a>
                 <a data-page="mydashboards"><span class="icon">&#9636;</span> Mina Dashboards</a>
-                <a data-page="help"><span class="icon">&#9432;</span> Hj&#228;lp</a>
-                <a data-page="settings"><span class="icon">&#9881;</span> Inst&#228;llningar</a>
+                <a data-page="opcua" data-admin="true"><span class="icon">&#9881;</span> OPC UA</a>
+                <a data-page="modbus" data-admin="true"><span class="icon">&#9881;</span> Modbus TCP</a>
+                <a data-page="help" data-admin="true"><span class="icon">&#9432;</span> Hj&#228;lp</a>
+                <a data-page="settings" data-admin="true"><span class="icon">&#9881;</span> Inst&#228;llningar</a>
             </div>
             <div class="sidebar-footer">
                 <div id="statusIndicator" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
@@ -324,7 +324,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h2>Mina Dashboards</h2>
-                        <button class="btn btn-success" onclick="showDashboardForm()">+ Ny Dashboard</button>
+                        <button class="btn btn-success admin-only" onclick="showDashboardForm()">+ Ny Dashboard</button>
                     </div>
                     <div id="dashboardList"></div>
                 </div>
@@ -370,6 +370,9 @@
             const loginBtn = document.getElementById('loginBtn');
             const logoutBtn = document.getElementById('logoutBtn');
             const userDisp = document.getElementById('userDisplay');
+            document.querySelectorAll('[data-admin]').forEach(el => {
+                el.style.display = isAdmin ? '' : 'none';
+            });
             if (isAdmin) {
                 loginBtn.style.display = 'none';
                 logoutBtn.style.display = 'block';
@@ -377,7 +380,15 @@
                 loginBtn.style.display = 'block';
                 logoutBtn.style.display = 'none';
                 userDisp.textContent = 'Inte inloggad';
+                const active = document.querySelector('.sidebar-nav a.active');
+                if (active && active.dataset.admin) {
+                    document.querySelectorAll('.sidebar-nav a').forEach(x => x.classList.remove('active'));
+                    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                    document.querySelector('[data-page="dashboard"]').classList.add('active');
+                    document.getElementById('page-dashboard').classList.add('active');
+                }
             }
+            loadDashboardList();
         }
 
         document.getElementById('loginBtn').onclick = () => document.getElementById('loginOverlay').classList.add('show');
@@ -987,17 +998,23 @@
         // ── Dashboards ──
         async function loadDashboardList() {
             const el = document.getElementById('dashboardList');
+            if (!el) return;
+            document.querySelectorAll('.admin-only').forEach(b => b.style.display = isAdmin ? '' : 'none');
             el.innerHTML = '<div class="empty-state">Laddar...</div>';
             try {
                 const res = await fetch('/api/dashboards/list');
                 const dashboards = await res.json();
                 if (!dashboards.length) {
-                    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div>Inga dashboards. Skapa en f&#246;r att b&#246;rja bygga visuella vyer.</div>';
+                    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div>Inga dashboards.' + (isAdmin ? ' Skapa en f&#246;r att b&#246;rja bygga visuella vyer.' : '') + '</div>';
                     return;
                 }
                 el.innerHTML = '<table><tr><th>Namn</th><th>Slug / URL</th><th>Publik</th><th>Widgetar</th><th>Skapad</th><th>Åtgärder</th></tr>' +
                     dashboards.map(d => {
                         const pubBadge = d.is_public ? '<span class="badge badge-green">Publik</span>' : '<span class="badge badge-gray">Privat</span>';
+                        const adminBtns = isAdmin ?
+                            '<button class="btn btn-sm btn-primary" onclick="showDashboardBuilder(' + d.id + ')">Bygg</button>' +
+                            '<button class="btn btn-sm btn-outline" onclick="showDashboardForm(' + d.id + ')">Redigera</button>' +
+                            '<button class="btn btn-sm btn-danger" onclick="deleteDashboard(' + d.id + ')">Ta bort</button>' : '';
                         return '<tr>' +
                             '<td><strong>' + esc(d.name) + '</strong>' + (d.description ? '<br><span style="color:#64748b;font-size:12px;">' + esc(d.description) + '</span>' : '') + '</td>' +
                             '<td><a href="/d/' + d.slug + '" target="_blank" style="color:#60a5fa;">/d/' + d.slug + '</a></td>' +
@@ -1006,9 +1023,7 @@
                             '<td style="color:#64748b;font-size:12px;">' + new Date(d.created_at).toLocaleDateString() + '</td>' +
                             '<td><div class="btn-group">' +
                                 '<a href="/d/' + d.slug + '" target="_blank" class="btn btn-sm btn-outline">Visa</a>' +
-                                '<button class="btn btn-sm btn-primary" onclick="showDashboardBuilder(' + d.id + ')">Bygg</button>' +
-                                '<button class="btn btn-sm btn-outline" onclick="showDashboardForm(' + d.id + ')">Redigera</button>' +
-                                '<button class="btn btn-sm btn-danger" onclick="deleteDashboard(' + d.id + ')">Ta bort</button>' +
+                                adminBtns +
                             '</div></td></tr>';
                     }).join('') + '</table>';
                 dashboards.forEach(async d => {
