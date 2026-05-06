@@ -88,7 +88,7 @@ router.post('/connections/:id/stop', (req, res) => {
   res.json({ success: true, status: 'stopped' });
 });
 
-router.post('/connections/:id/test', async (req, res) => {
+router.post('/connections/:id/test', async (req, res, next) => {
   try {
     const conn = await connectionModel.getById(req.params.id);
     if (!conn) return res.status(404).json({ error: 'Hittades inte' });
@@ -104,7 +104,27 @@ router.post('/connections/:id/test', async (req, res) => {
 
     try {
       await instance.connect();
-      const result = { success: true, message: `Ansluten till ${conn.type === 'modbus' ? config.host + ':' + config.port : config.url}` };
+      let registerTest = null;
+      if (conn.type === 'modbus') {
+        try {
+          const tags = await tagModel.listByConnection(conn.id);
+          const firstTag = tags.find(t => t.enabled);
+          if (firstTag) {
+            const tagConfig = typeof firstTag.config === 'string' ? JSON.parse(firstTag.config) : firstTag.config;
+            const readResult = await instance.testRead(tagConfig);
+            registerTest = { tag: firstTag.name, success: true, value: readResult.value, raw: readResult.rawRegisters };
+          } else {
+            registerTest = { tag: null, success: true, note: 'Inga taggar att testa' };
+          }
+        } catch (err) {
+          registerTest = { tag: 'test', success: false, error: err.message };
+        }
+      }
+      const result = {
+        success: true,
+        message: `Ansluten till ${conn.type === 'modbus' ? config.host + ':' + config.port : config.url}`,
+        registerTest
+      };
       await instance.disconnect();
       res.json(result);
     } catch (err) {
@@ -185,8 +205,8 @@ router.post('/tags/:id/test', async (req, res, next) => {
       await instance.disconnect();
       res.json(result);
     } catch (err) {
-      await instance.disconnect();
-      res.json({ success: false, error: err.message });
+      try { await instance.disconnect(); } catch {}
+      res.json({ success: false, error: err.message, config: tagConfig });
     }
   } catch (err) { next(err); }
 });

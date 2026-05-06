@@ -513,23 +513,32 @@
 
         function renderConnection(c) {
             const tagsHtml = (c.tags || []).map(t => renderTag(c, t)).join('');
+            const tagCount = (c.tags || []).length;
             return '<div class="conn-item" id="conn-' + c.id + '">' +
                 '<div class="conn-header" onclick="toggleConn(' + c.id + ')">' +
                     statusDot(c.status) +
                     '<span class="conn-name">' + esc(c.name) + '</span>' +
+                    '<span style="color:#64748b;font-size:12px;">' + tagCount + ' register</span>' +
                     statusBadge(c.status) +
                     '<div class="btn-group" onclick="event.stopPropagation()">' +
-                        (c.active ? '<button class="btn btn-sm btn-danger" onclick="stopConn(' + c.id + ')">Stoppa</button>' : '<button class="btn btn-sm btn-success" onclick="startConn(' + c.id + ')">Starta</button>') +
+                        (c.active ? '<button class="btn btn-sm btn-danger" onclick="stopConn(' + c.id + ')">&#9632; Stoppa</button>' : '<button class="btn btn-sm btn-success" onclick="startConn(' + c.id + ')">&#9654; Starta</button>') +
                         '<button class="btn btn-sm btn-outline" onclick="testConn(' + c.id + ')">Testa</button>' +
                         '<button class="btn btn-sm btn-outline" onclick="editConn(' + c.id + ')">Redigera</button>' +
                         '<button class="btn btn-sm btn-danger" onclick="deleteConn(' + c.id + ')">Ta bort</button>' +
                     '</div>' +
                 '</div>' +
-                '<div class="conn-body" id="conn-body-' + c.id + '">' +
-                    '<div style="margin-bottom:12px;"><strong>Taggar / Register:</strong> ' +
-                    '<button class="btn btn-sm btn-primary" onclick="showTagForm(' + c.id + ',\'' + c.type + '\')">+ L&#228;gg till</button>' +
-                    '<button class="btn btn-sm btn-outline" style="margin-left:4px;" onclick="testReadAll(' + c.id + ')">Testa alla</button></div>' +
-                    (tagsHtml || '<div style="color:#64748b;padding:8px;">Inga taggar tillagda</div>') +
+                '<div class="conn-body open" id="conn-body-' + c.id + '">' +
+                    '<div style="margin-bottom:12px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                        '<strong>Register / Taggar</strong>' +
+                        '<button class="btn btn-sm btn-success" onclick="showTagForm(' + c.id + ',\'' + c.type + '\')">+ L&#228;gg till register</button>' +
+                        '<button class="btn btn-sm btn-outline" onclick="testReadAll(' + c.id + ')">Testa alla</button>' +
+                        (c.type === 'modbus' ? '<button class="btn btn-sm btn-outline" onclick="showBulkAddRegisters(' + c.id + ')">Snabb-l&#228;gg till flera</button>' : '') +
+                    '</div>' +
+                    (tagsHtml ?
+                        '<div style="display:grid;grid-template-columns:auto 1fr auto auto auto auto;gap:8px;align-items:center;padding:6px 12px;border-bottom:1px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.3px;">' +
+                            '<span>Status</span><span>Namn / Adress</span><span>Senast</span><span colspan="3"></span>' +
+                        '</div>' + tagsHtml
+                    : '<div style="color:#64748b;padding:16px;text-align:center;">Inga register tillagda &#228;nnu. Klicka "+ L&#228;gg till register" ovan.</div>') +
                     '<div id="test-result-' + c.id + '"></div>' +
                 '</div>' +
             '</div>';
@@ -540,10 +549,13 @@
             const addrInfo = conn.type === 'modbus'
                 ? (cfg.registerType || 'holding') + ' @ ' + (cfg.address || '?') + (cfg.dataType ? ' (' + cfg.dataType + ')' : '')
                 : (cfg.nodeId || '?');
-            const lastVal = tag.last_value !== null ? tag.last_value : '--';
-            return '<div class="tag-row">' +
-                statusDot(tag.error_message ? 'error' : 'connected') +
-                '<div><strong>' + esc(tag.name) + '</strong><br><span style="color:#64748b;font-size:12px;">' + esc(addrInfo) + '</span></div>' +
+            const lastVal = tag.last_value !== null && tag.last_value !== undefined ? tag.last_value : '--';
+            const hasError = tag.error_message;
+            return '<div class="tag-row" style="' + (hasError ? 'background:#7f1d1d20;' : '') + '">' +
+                statusDot(hasError ? 'error' : (tag.last_value !== null ? 'connected' : 'stopped')) +
+                '<div><strong>' + esc(tag.name) + '</strong><br><span style="color:#64748b;font-size:12px;">' + esc(addrInfo) + '</span>' +
+                (hasError ? '<br><span style="color:#f87171;font-size:11px;">&#9888; ' + esc(hasError) + '</span>' : '') +
+                '</div>' +
                 '<span style="font-family:monospace;color:#60a5fa;">' + lastVal + '</span>' +
                 '<button class="btn btn-sm btn-outline" onclick="testTag(' + tag.id + ')">Test</button>' +
                 '<button class="btn btn-sm btn-outline" onclick="editTag(' + tag.id + ',' + conn.id + ',\'' + conn.type + '\')">Redigera</button>' +
@@ -575,11 +587,21 @@
             const res = await fetch('/api/admin/connections/' + id + '/test', {method:'POST', headers:getAuthHeaders()});
             const data = await res.json();
             if (data.success) {
-                el.innerHTML = '<div class="test-result" style="border-color:#22c55e;">&#10004; Anslutning OK\n' + esc(data.message) + '</div>';
+                let text = '&#10004; Anslutning OK\n' + esc(data.message);
+                if (data.registerTest) {
+                    if (data.registerTest.success) {
+                        text += '\n\n&#10004; Registertest (' + (data.registerTest.tag || '?') + '): OK';
+                        if (data.registerTest.value !== undefined) text += '\n   V&#228;rde: ' + data.registerTest.value;
+                        if (data.registerTest.raw) text += '\n   R&#229;data: [' + data.registerTest.raw.join(', ') + ']';
+                    } else {
+                        text += '\n\n&#10008; Registertest: ' + esc(data.registerTest.error || 'Fel');
+                    }
+                }
+                el.innerHTML = '<div class="test-result" style="border-color:#22c55e;">' + text + '</div>';
             } else {
                 el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">&#10008; Fel: ' + esc(data.error) + '</div>';
             }
-            setTimeout(() => { if (el.id) el.innerHTML = ''; }, 8000);
+            setTimeout(() => { if (el.id) el.innerHTML = ''; }, 15000);
         }
         async function deleteConn(id) {
             if (!confirm('Ta bort denna anslutning och alla taggar?')) return;
@@ -596,7 +618,22 @@
         async function testTag(tagId) {
             const res = await fetch('/api/admin/tags/' + tagId + '/test', {method:'POST', headers:getAuthHeaders()});
             const data = await res.json();
-            showModal('<h3>Testresultat</h3><div class="test-result">' + esc(JSON.stringify(data, null, 2)) + '</div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>');
+            const lines = [];
+            if (data.success) {
+                lines.push('&#10004; L&#228;sning lyckades');
+                lines.push('V&#228;rde: ' + data.value);
+                if (data.rawRegisters) lines.push('R&#229;data (register): [' + data.rawRegisters.join(', ') + ']');
+                if (data.decodedRaw !== undefined) lines.push('Avkodat r&#229;v&#228;rde: ' + data.decodedRaw);
+                if (data.config) {
+                    lines.push('Adress: ' + (data.config.address || '?'));
+                    lines.push('Datatyp: ' + (data.config.dataType || '?'));
+                    lines.push('Byte order: ' + (data.config.byteOrder || 'big'));
+                }
+            } else {
+                lines.push('&#10008; Fel: ' + (data.error || 'Ok&#228;nt fel'));
+                if (data.config) lines.push('Adress: ' + (data.config.address || '?'));
+            }
+            showModal('<h3>Testresultat</h3><div class="test-result">' + lines.join('\n') + '</div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>');
         }
         async function deleteTag(tagId, connId, type) {
             if (!confirm('Ta bort denna tagg?')) return;
@@ -746,11 +783,11 @@
                             '<option value="coil"' + (cfg.registerType==='coil'?' selected':'') + '>Coil (0xxxx)</option>' +
                             '<option value="discrete"' + (cfg.registerType==='discrete'?' selected':'') + '>Discrete (1xxxx)</option>' +
                         '</select></div>' +
-                        '<div class="form-group"><label>Adress</label><input type="number" id="t-address" value="' + (cfg.address || 0) + '"></div>' +
-                        '<div class="form-group"><label>Antal register</label><input type="number" id="t-quantity" value="' + (cfg.quantity || 2) + '" min="1"></div>' +
+                        '<div class="form-group"><label>Adress</label><input type="number" id="t-address" value="' + (cfg.address || 0) + '"><small style="color:#64748b;">Register nummer, t.ex. 100</small></div>' +
+                        '<div class="form-group"><label>Antal register</label><input type="number" id="t-quantity" value="' + (cfg.quantity || 2) + '" min="1"><small style="color:#64748b;">S&#228;tts automatiskt av datatyp</small></div>' +
                     '</div>' +
                     '<div class="form-row-3">' +
-                        '<div class="form-group"><label>Datatyp</label><select id="t-dataType">' +
+                        '<div class="form-group"><label>Datatyp</label><select id="t-dataType" onchange="autoSetQuantity()">' +
                             '<option value="uint16"' + (cfg.dataType==='uint16'?' selected':'') + '>uint16 (1 reg)</option>' +
                             '<option value="int16"' + (cfg.dataType==='int16'?' selected':'') + '>int16 (1 reg)</option>' +
                             '<option value="uint32"' + (cfg.dataType==='uint32'?' selected':'') + '>uint32 (2 reg)</option>' +
@@ -759,7 +796,7 @@
                             '<option value="float64"' + (cfg.dataType==='float64'?' selected':'') + '>float64 (4 reg)</option>' +
                         '</select></div>' +
                         '<div class="form-group"><label>Byte Order</label><select id="t-byteOrder">' +
-                            '<option value="big"' + (cfg.byteOrder==='big'||!cfg.byteOrder?' selected':'') + '>Big Endian</option>' +
+                            '<option value="big"' + (cfg.byteOrder==='big'||!cfg.byteOrder?' selected':'') + '>Big Endian (standard)</option>' +
                             '<option value="little"' + (cfg.byteOrder==='little'?' selected':'') + '>Little Endian</option>' +
                             '<option value="bigSwap"' + (cfg.byteOrder==='bigSwap'?' selected':'') + '>Big Endian Swap</option>' +
                             '<option value="littleSwap"' + (cfg.byteOrder==='littleSwap'?' selected':'') + '>Little Endian Swap</option>' +
@@ -770,19 +807,40 @@
                         '</select></div>' +
                     '</div>' +
                     '<div class="form-row-3">' +
-                        '<div class="form-group"><label>Scaling Factor</label><input type="number" step="0.01" id="t-scaling" value="' + (cfg.scalingFactor || 1) + '"></div>' +
-                        '<div class="form-group"><label>Offset</label><input type="number" step="0.01" id="t-offset" value="' + (cfg.offset || 0) + '"></div>' +
-                        '<div class="form-group"><label>Poll-intervall (ms)</label><input type="number" id="t-pollInterval" value="' + (cfg.pollInterval || 1000) + '"></div>' +
+                        '<div class="form-group"><label>Scaling Factor</label><input type="number" step="0.01" id="t-scaling" value="' + (cfg.scalingFactor || 1) + '"><small style="color:#64748b;">Multiplicera r&#229;v&#228;rdet</small></div>' +
+                        '<div class="form-group"><label>Offset</label><input type="number" step="0.01" id="t-offset" value="' + (cfg.offset || 0) + '"><small style="color:#64748b;">L&#228;gg till efter scaling</small></div>' +
+                        '<div class="form-group"><label>Poll-intervall (ms)</label><input type="number" id="t-pollInterval" value="' + (cfg.pollInterval || 1000) + '"><small style="color:#64748b;">Hur ofta v&#228;rdet l&#228;ses</small></div>' +
+                    '</div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Alternativ</div>' +
+                        '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">' +
+                            '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;font-size:13px;">' +
+                                '<input type="checkbox" id="t-addressOffset" ' + (cfg.addressOffset ? 'checked' : '') + ' style="margin-top:2px;">' +
+                                '<div><strong>Adress offset +1</strong><br><span style="color:#64748b;font-size:11px;">L&#228;gger till 1 till adressen (f&#246;r 1-baserade enheter)</span></div>' +
+                            '</label>' +
+                            '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;font-size:13px;">' +
+                                '<input type="checkbox" id="t-byteSwap" ' + (cfg.byteSwap ? 'checked' : '') + ' style="margin-top:2px;">' +
+                                '<div><strong>Byte swap</strong><br><span style="color:#64748b;font-size:11px;">Byt plats p&#229; h&#246;g/l&#229;g byte i varje register</span></div>' +
+                            '</label>' +
+                            '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;font-size:13px;">' +
+                                '<input type="checkbox" id="t-wordSwap" ' + (cfg.wordSwap ? 'checked' : '') + ' style="margin-top:2px;">' +
+                                '<div><strong>Word swap</strong><br><span style="color:#64748b;font-size:11px;">Byt plats p&#229; ordningen av register-ord (f&#246;r 32+ bit)</span></div>' +
+                            '</label>' +
+                        '</div>' +
                     '</div>' +
                     '<div class="form-row">' +
                         '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min, &#176;C, bar"></div>' +
                         '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
+                    '</div>' +
+                    '<div style="background:#0f172a;border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:#64748b;">' +
+                        '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = (R&#229;v&#228;rde &times; ' + (cfg.scalingFactor || 1) + ') + ' + (cfg.offset || 0) +
                     '</div>' +
                     '<div class="modal-actions">' +
                         '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
                         '<button class="btn btn-primary" onclick="saveTag(' + connId + ',\'' + connType + '\',' + (editId||'null') + ')">Spara</button>' +
                     '</div>'
                 );
+                if (!editId) autoSetQuantity();
             } else {
                 showModal(
                     '<h3>' + (editId ? 'Redigera' : 'Ny') + ' OPC UA-tagg</h3>' +
@@ -801,6 +859,105 @@
             }
         }
 
+        function autoSetQuantity() {
+            const dt = document.getElementById('t-dataType');
+            const qt = document.getElementById('t-quantity');
+            if (!dt || !qt) return;
+            const map = { uint16: 1, int16: 1, uint32: 2, int32: 2, float32: 2, float64: 4 };
+            qt.value = map[dt.value] || 1;
+        }
+
+        async function showBulkAddRegisters(connId) {
+            showModal(
+                '<h3>Snabb-l&#228;gg till flera register</h3>' +
+                '<p style="color:#94a3b8;margin-bottom:12px;font-size:13px;">Ange registeradresser, en per rad. Datatyp och inst&#228;llningar s&#228;tts p&#229; alla.</p>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Register-typ</label><select id="b-registerType">' +
+                        '<option value="holding">Holding (4xxxx)</option><option value="input">Input (3xxxx)</option>' +
+                    '</select></div>' +
+                    '<div class="form-group"><label>Datatyp</label><select id="b-dataType" onchange="autoSetBulkQuantity()">' +
+                        '<option value="uint16">uint16 (1 reg)</option><option value="int16">int16 (1 reg)</option>' +
+                        '<option value="float32" selected>float32 (2 reg)</option><option value="int32">int32 (2 reg)</option>' +
+                        '<option value="uint32">uint32 (2 reg)</option><option value="float64">float64 (4 reg)</option>' +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Byte Order</label><select id="b-byteOrder">' +
+                        '<option value="big">Big Endian</option><option value="little">Little Endian</option>' +
+                    '</select></div>' +
+                    '<div class="form-group"><label>Poll-intervall (ms)</label><input type="number" id="b-pollInterval" value="1000"></div>' +
+                '</div>' +
+                '<div style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:12px;">' +
+                    '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">' +
+                        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">' +
+                            '<input type="checkbox" id="b-addressOffset"> Adress offset +1</label>' +
+                        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">' +
+                            '<input type="checkbox" id="b-byteSwap"> Byte swap</label>' +
+                        '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">' +
+                            '<input type="checkbox" id="b-wordSwap"> Word swap</label>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="form-group"><label>Register att l&#228;gga till (adress=namn, en per rad)</label>' +
+                    '<textarea id="b-registers" rows="8" style="width:100%;padding:9px 12px;background:#0f172a;border:1px solid #334155;border-radius:6px;color:#e2e8f0;font-family:monospace;font-size:13px;" placeholder="100=Fl&#246;dessensor 1&#10;102=Fl&#246;dessensor 2&#10;104=Tryckm&#228;tare&#10;106=Temperatur"></textarea></div>' +
+                '<p style="color:#64748b;font-size:12px;">Format: ADRESS=NAMN (t.ex. 100=Fl&#246;de) eller bara ADRESS</p>' +
+                '<div id="bulk-result" style="margin-top:8px;"></div>' +
+                '<div class="modal-actions">' +
+                    '<button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button>' +
+                    '<button class="btn btn-success" onclick="executeBulkAdd(' + connId + ')">L&#228;gg till alla</button>' +
+                '</div>'
+            );
+        }
+
+        function autoSetBulkQuantity() {
+            // just informational for bulk
+        }
+
+        async function executeBulkAdd(connId) {
+            const regType = document.getElementById('b-registerType').value;
+            const dataType = document.getElementById('b-dataType').value;
+            const byteOrder = document.getElementById('b-byteOrder').value;
+            const pollInterval = parseInt(document.getElementById('b-pollInterval').value) || 1000;
+            const addressOffset = document.getElementById('b-addressOffset').checked;
+            const byteSwap = document.getElementById('b-byteSwap').checked;
+            const wordSwap = document.getElementById('b-wordSwap').checked;
+            const qtyMap = { uint16: 1, int16: 1, uint32: 2, int32: 2, float32: 2, float64: 4 };
+            const quantity = qtyMap[dataType] || 1;
+            const lines = document.getElementById('b-registers').value.split('\n').map(l => l.trim()).filter(Boolean);
+
+            if (!lines.length) { alert('Ange minst ett register'); return; }
+
+            const resultEl = document.getElementById('bulk-result');
+            resultEl.innerHTML = '<div style="color:#60a5fa;">L&#228;gger till ' + lines.length + ' register...</div>';
+
+            let ok = 0, fail = 0;
+            for (const line of lines) {
+                const parts = line.split('=');
+                const address = parseInt(parts[0].trim());
+                const name = parts[1] ? parts[1].trim() : 'Register ' + address;
+                if (isNaN(address)) { fail++; continue; }
+                try {
+                    const res = await fetch('/api/admin/connections/' + connId + '/tags', {
+                        method: 'POST',
+                        headers: getAuthHeaders(),
+                        body: JSON.stringify({
+                            title: name,
+                            name: name,
+                            widget_type: 'gauge',
+                            enabled: true,
+                            config: {
+                                registerType: regType, address, quantity, dataType, byteOrder,
+                                wordOrder: 'big', addressOffset, byteSwap, wordSwap,
+                                scalingFactor: 1, offset: 0, pollInterval
+                            }
+                        })
+                    });
+                    if (res.ok) ok++; else fail++;
+                } catch { fail++; }
+            }
+            resultEl.innerHTML = '<div style="color:' + (fail ? '#fbbf24' : '#4ade80') + ';">Klart! ' + ok + ' tillagda' + (fail ? ', ' + fail + ' misslyckades' : '') + '</div>';
+            setTimeout(() => { closeModal(); loadConnections('modbus'); }, 1500);
+        }
+
         async function saveTag(connId, connType, editId) {
             let config;
             if (connType === 'modbus') {
@@ -811,6 +968,9 @@
                     dataType: document.getElementById('t-dataType').value,
                     byteOrder: document.getElementById('t-byteOrder').value,
                     wordOrder: document.getElementById('t-wordOrder').value,
+                    addressOffset: document.getElementById('t-addressOffset').checked,
+                    byteSwap: document.getElementById('t-byteSwap').checked,
+                    wordSwap: document.getElementById('t-wordSwap').checked,
                     scalingFactor: parseFloat(document.getElementById('t-scaling').value) || 1,
                     offset: parseFloat(document.getElementById('t-offset').value) || 0,
                     pollInterval: parseInt(document.getElementById('t-pollInterval').value) || 1000,

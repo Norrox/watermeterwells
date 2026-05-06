@@ -63,10 +63,14 @@ async function startConnection(id) {
     return {
       ...tag,
       config: tagConfig,
-      onData: async (value) => {
+      onData: async (result) => {
+        const value = typeof result === 'object' && result.value !== undefined ? result.value : result;
         await tagModel.updateLastValue(tag.id, value);
         const source = `${conn.name}_${tag.name}`;
         await flowLog.insert(value, source);
+      },
+      onError: async (errorMsg) => {
+        if (errorMsg) await tagModel.updateError(tag.id, errorMsg);
       }
     };
   });

@@ -9,6 +9,7 @@ class ModbusConnection {
       unitId: parseInt(config.unitId) || 1,
       timeout: parseInt(config.timeout) || 5000
     };
+    this.connected = false;
     this.onStatusChange = onStatusChange || (() => {});
     this.socket = null;
     this.client = null;
@@ -31,6 +32,7 @@ class ModbusConnection {
 
       this.socket.on('connect', () => {
         clearTimeout(timeoutId);
+        this.connected = true;
         this._setStatus('connected');
         resolve();
       });
@@ -43,6 +45,7 @@ class ModbusConnection {
 
       this.socket.on('close', () => {
         this._setStatus('stopped');
+        this.connected = false;
       });
 
       this.socket.connect({ host: this.config.host, port: this.config.port });
@@ -61,8 +64,10 @@ class ModbusConnection {
         try {
           const value = await this.readRegister(cfg);
           if (tag.onData) tag.onData(value);
-        } catch {
-          // individual read failures are silent
+          if (tag.onError) tag.onError(null);
+        } catch (err) {
+          console.error(`[Modbus] Fel vid läsning av ${tag.name} (addr ${cfg.address}): ${err.message}`);
+          if (tag.onError) tag.onError(err.message);
         }
       }, interval);
     }
@@ -76,12 +81,13 @@ class ModbusConnection {
   }
 
   async readRegister(cfg) {
-    if (!this.client || !this.socket || this.socket.destroyed) {
+    if (!this.client || !this.socket || this.socket.destroyed || !this.connected) {
       throw new Error('Inte ansluten');
     }
 
     const registerType = cfg.registerType || 'holding';
-    const address = parseInt(cfg.address) || 0;
+    let address = parseInt(cfg.address) || 0;
+    if (cfg.addressOffset) address += 1;
     const quantity = parseInt(cfg.quantity) || 1;
 
     let response;
@@ -102,31 +108,41 @@ class ModbusConnection {
         response = await this.client.readHoldingRegisters(address, quantity);
     }
 
-    const values = registerType === 'coil' || registerType === 'discrete'
-      ? response.response._body._values
-      : response.response._body._values;
+    const rawValues = response.response._body._valuesAsArray || response.response._body._values;
+    const rawArray = Array.from(rawValues).map(v => v);
 
-    const rawValue = this.decodeValue(values, cfg);
+    const decodedValue = this.decodeValue(rawValues, cfg);
     const scaling = parseFloat(cfg.scalingFactor) || 1;
     const offset = parseFloat(cfg.offset) || 0;
-    return rawValue * scaling + offset;
+    const finalValue = decodedValue * scaling + offset;
+
+    return { value: finalValue, rawRegisters: rawArray, decodedRaw: decodedValue };
   }
 
   decodeValue(values, cfg) {
     const dataType = cfg.dataType || 'uint16';
     const byteOrder = cfg.byteOrder || 'big';
     const wordOrder = cfg.wordOrder || 'big';
+    const byteSwap = !!cfg.byteSwap;
+    const wordSwap = !!cfg.wordSwap;
 
     if (dataType === 'uint16') {
-      return values[0];
+      let v = values[0];
+      if (byteSwap) v = ((v & 0xFF) << 8) | ((v >> 8) & 0xFF);
+      return v;
     }
 
     if (dataType === 'int16') {
-      const v = values[0];
+      let v = values[0];
+      if (byteSwap) v = ((v & 0xFF) << 8) | ((v >> 8) & 0xFF);
       return v > 32767 ? v - 65536 : v;
     }
 
-    let registers = wordOrder === 'little' ? [...values].reverse() : [...values];
+    let registers = [...values];
+
+    if (wordOrder === 'little' || wordSwap) {
+      registers = [...registers].reverse();
+    }
 
     let bytes = [];
     for (const reg of registers) {
@@ -139,7 +155,7 @@ class ModbusConnection {
       }
     }
 
-    if (byteOrder === 'bigSwap' || byteOrder === 'littleSwap') {
+    if (byteOrder === 'bigSwap' || byteOrder === 'littleSwap' || byteSwap) {
       const swapped = [];
       for (let i = 0; i < bytes.length; i += 2) {
         swapped.push(bytes[i + 1]);
@@ -153,8 +169,7 @@ class ModbusConnection {
     }
 
     if (dataType === 'int32') {
-      const raw = (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
-      return raw;
+      return (bytes[0] << 24) | (bytes[1] << 16) | (bytes[2] << 8) | bytes[3];
     }
 
     if (dataType === 'float32') {
@@ -173,22 +188,22 @@ class ModbusConnection {
   }
 
   async testRead(cfg) {
-    if (!this.client || !this.socket || this.socket.destroyed) {
+    if (!this.client || !this.socket || this.socket.destroyed || !this.connected) {
       await this.connect();
     }
-    const value = await this.readRegister(cfg);
-    return { success: true, value, config: cfg };
+    const result = await this.readRegister(cfg);
+    return { success: true, ...result, address: cfg.address, config: cfg };
   }
 
   async testBulkRead(registers) {
-    if (!this.client || !this.socket || this.socket.destroyed) {
+    if (!this.client || !this.socket || this.socket.destroyed || !this.connected) {
       await this.connect();
     }
     const results = [];
     for (const cfg of registers) {
       try {
-        const value = await this.readRegister(cfg);
-        results.push({ address: cfg.address, name: cfg.name || `Reg ${cfg.address}`, success: true, value });
+        const result = await this.readRegister(cfg);
+        results.push({ address: cfg.address, name: cfg.name || `Reg ${cfg.address}`, success: true, ...result });
       } catch (err) {
         results.push({ address: cfg.address, name: cfg.name || `Reg ${cfg.address}`, success: false, error: err.message });
       }
@@ -198,6 +213,7 @@ class ModbusConnection {
 
   disconnect() {
     this.stopPolling();
+    this.connected = false;
     if (this.socket) {
       this.socket.destroy();
       this.socket = null;
