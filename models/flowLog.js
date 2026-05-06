@@ -77,8 +77,8 @@ async function getStats() {
     return {
       avgFlow: avg[0].avg_flow ? Math.round(avg[0].avg_flow * 100) / 100 : 0,
       minFlow: avg[0].min_flow || 0,
-      maxFlow: avg[0].max_flow || 0,
-      totalSamples: avg[0].total_samples || 0,
+      maxFlow: avg[0].max_flow ? Math.round(avg[0].avg_flow * 100) / 100 : 0,
+      totalSamples: Number(avg[0].total_samples) || 0,
       latestFlow: latest[0] ? latest[0].flow_rate : 0,
       latestTimestamp: latest[0] ? latest[0].timestamp : null
     };
