@@ -76,7 +76,7 @@ async function startConnection(id) {
   });
 
   if (conn.type === 'modbus') {
-    instance.startPolling(tagsWithCallbacks);
+    instance.startPolling(tagsWithCallbacks, id);
   } else {
     instance.startSubscriptions(tagsWithCallbacks);
   }

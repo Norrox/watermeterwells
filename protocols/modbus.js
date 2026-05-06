@@ -1,6 +1,18 @@
 const Modbus = require('jsmodbus');
 const net = require('net');
 
+const MODBUS_ERRORS = {
+  1: 'Illegal Function - enheten stöder inte denna funktion',
+  2: 'Illegal Data Address - ogiltig registeradress',
+  3: 'Illegal Data Value - ogiltigt datavärde',
+  4: 'Server Device Failure - enheten fungerar inte',
+  5: 'Acknowledge - enheten bearbetar (försök igen)',
+  6: 'Server Device Busy - enheten är upptagen',
+  7: 'Negative Acknowledge - enheten nekade begäran',
+  10: 'Gateway Path Unavailable',
+  11: 'Gateway Target Device Failed to Respond'
+};
+
 class ModbusConnection {
   constructor(config, onStatusChange) {
     this.config = {
@@ -16,10 +28,17 @@ class ModbusConnection {
     this.timers = {};
     this.status = 'stopped';
     this.tags = [];
+    this.reconnectTimer = null;
+    this.config_ref = config;
+    this.connId = null;
   }
 
   async connect() {
     return new Promise((resolve, reject) => {
+      if (this.socket && !this.socket.destroyed) {
+        if (this.connected) { resolve(); return; }
+      }
+
       this._setStatus('connecting');
       this.socket = new net.Socket();
       this.client = new Modbus.client.TCP(this.socket, this.config.unitId);
@@ -39,21 +58,29 @@ class ModbusConnection {
 
       this.socket.on('error', (err) => {
         clearTimeout(timeoutId);
+        this.connected = false;
         this._setStatus('error', err.message);
         reject(err);
       });
 
       this.socket.on('close', () => {
-        this._setStatus('stopped');
         this.connected = false;
+        this._setStatus('stopped');
       });
 
       this.socket.connect({ host: this.config.host, port: this.config.port });
     });
   }
 
-  startPolling(tags) {
+  async ensureConnected() {
+    if (this.connected && this.socket && !this.socket.destroyed) return;
+    this.connected = false;
+    await this.connect();
+  }
+
+  startPolling(tags, connId) {
     this.tags = tags.filter(t => t.enabled);
+    this.connId = connId;
     this.stopPolling();
 
     for (const tag of this.tags) {
@@ -62,15 +89,41 @@ class ModbusConnection {
 
       this.timers[tag.id] = setInterval(async () => {
         try {
-          const value = await this.readRegister(cfg);
-          if (tag.onData) tag.onData(value);
+          await this.ensureConnected();
+          const result = await this.readRegister(cfg);
+          if (tag.onData) tag.onData(result);
           if (tag.onError) tag.onError(null);
         } catch (err) {
-          console.error(`[Modbus] Fel vid läsning av ${tag.name} (addr ${cfg.address}): ${err.message}`);
-          if (tag.onError) tag.onError(err.message);
+          const msg = this.parseError(err, cfg);
+          console.error(`[Modbus] ${msg}`);
+          if (tag.onError) tag.onError(msg);
         }
       }, interval);
     }
+  }
+
+  parseError(err, cfg) {
+    const msg = err.message || String(err);
+    let code = 0;
+
+    if (err.response && err.response.body) {
+      code = err.response.body.code || err.response.body.exceptionCode || 0;
+    }
+
+    if (!code) {
+      const m1 = msg.match(/code\s*(?:is|=)?\s*(\d+)/i);
+      if (m1) code = parseInt(m1[1]);
+    }
+    if (!code) {
+      const m2 = msg.match(/exception\s*.*?(\d+)/i);
+      if (m2) code = parseInt(m2[1]);
+    }
+
+    const address = cfg.address !== undefined ? cfg.address : '?';
+    const desc = MODBUS_ERRORS[code] || `Okänd felkod ${code}`;
+    let hint = '';
+    if (code === 2) hint = ' — Kontrollera att adressen är rätt. PLC-notation 40001 = adress 0.';
+    return `Adress ${address}: ${desc}${hint}`;
   }
 
   stopPolling() {
@@ -78,12 +131,14 @@ class ModbusConnection {
       clearInterval(this.timers[id]);
     }
     this.timers = {};
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   async readRegister(cfg) {
-    if (!this.client || !this.socket || this.socket.destroyed || !this.connected) {
-      throw new Error('Inte ansluten');
-    }
+    await this.ensureConnected();
 
     const registerType = cfg.registerType || 'holding';
     let address = parseInt(cfg.address) || 0;
@@ -91,21 +146,25 @@ class ModbusConnection {
     const quantity = parseInt(cfg.quantity) || 1;
 
     let response;
-    switch (registerType) {
-      case 'holding':
-        response = await this.client.readHoldingRegisters(address, quantity);
-        break;
-      case 'input':
-        response = await this.client.readInputRegisters(address, quantity);
-        break;
-      case 'coil':
-        response = await this.client.readCoils(address, quantity);
-        break;
-      case 'discrete':
-        response = await this.client.readDiscreteInputs(address, quantity);
-        break;
-      default:
-        response = await this.client.readHoldingRegisters(address, quantity);
+    try {
+      switch (registerType) {
+        case 'holding':
+          response = await this.client.readHoldingRegisters(address, quantity);
+          break;
+        case 'input':
+          response = await this.client.readInputRegisters(address, quantity);
+          break;
+        case 'coil':
+          response = await this.client.readCoils(address, quantity);
+          break;
+        case 'discrete':
+          response = await this.client.readDiscreteInputs(address, quantity);
+          break;
+        default:
+          response = await this.client.readHoldingRegisters(address, quantity);
+      }
+    } catch (err) {
+      throw new Error(this.parseError(err, cfg));
     }
 
     const rawValues = response.response._body._valuesAsArray || response.response._body._values;
@@ -188,17 +247,13 @@ class ModbusConnection {
   }
 
   async testRead(cfg) {
-    if (!this.client || !this.socket || this.socket.destroyed || !this.connected) {
-      await this.connect();
-    }
+    await this.ensureConnected();
     const result = await this.readRegister(cfg);
     return { success: true, ...result, address: cfg.address, config: cfg };
   }
 
   async testBulkRead(registers) {
-    if (!this.client || !this.socket || this.socket.destroyed || !this.connected) {
-      await this.connect();
-    }
+    await this.ensureConnected();
     const results = [];
     for (const cfg of registers) {
       try {

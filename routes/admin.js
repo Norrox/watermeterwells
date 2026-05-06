@@ -144,6 +144,17 @@ router.get('/connections/:connId/tags', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.get('/tags/:id', async (req, res, next) => {
+  try {
+    const tag = await tagModel.getById(req.params.id);
+    if (!tag) return res.status(404).json({ error: 'Tagg hittades inte' });
+    res.json({
+      ...tag,
+      config: typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config
+    });
+  } catch (err) { next(err); }
+});
+
 router.post('/connections/:connId/tags', async (req, res, next) => {
   try {
     const { name, enabled, config } = req.body;

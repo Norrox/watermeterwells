@@ -572,13 +572,21 @@
 
         // ── Connection Actions ──
         async function startConn(id) {
-            const res = await fetch('/api/admin/connections/' + id + '/start', {method:'POST', headers:getAuthHeaders()});
-            const data = await res.json();
-            if (!data.success) alert('Kunde inte starta: ' + data.error);
+            const btn = event.target;
+            btn.disabled = true; btn.textContent = 'Startar...';
+            try {
+                const res = await fetch('/api/admin/connections/' + id + '/start', {method:'POST', headers:getAuthHeaders()});
+                const data = await res.json();
+                if (!data.success) alert('Kunde inte starta: ' + data.error);
+            } catch (e) { alert('Nätverksfel: ' + e.message); }
             loadConnections(document.querySelector('.sidebar-nav a.active').dataset.page);
         }
         async function stopConn(id) {
-            await fetch('/api/admin/connections/' + id + '/stop', {method:'POST', headers:getAuthHeaders()});
+            const btn = event.target;
+            btn.disabled = true; btn.textContent = 'Stoppar...';
+            try {
+                await fetch('/api/admin/connections/' + id + '/stop', {method:'POST', headers:getAuthHeaders()});
+            } catch (e) { alert('Nätverksfel: ' + e.message); }
             loadConnections(document.querySelector('.sidebar-nav a.active').dataset.page);
         }
         async function testConn(id) {
@@ -783,7 +791,7 @@
                             '<option value="coil"' + (cfg.registerType==='coil'?' selected':'') + '>Coil (0xxxx)</option>' +
                             '<option value="discrete"' + (cfg.registerType==='discrete'?' selected':'') + '>Discrete (1xxxx)</option>' +
                         '</select></div>' +
-                        '<div class="form-group"><label>Adress</label><input type="number" id="t-address" value="' + (cfg.address || 0) + '"><small style="color:#64748b;">Register nummer, t.ex. 100</small></div>' +
+                        '<div class="form-group"><label>Adress</label><input type="number" id="t-address" value="' + (cfg.address || 0) + '" oninput="autoFixAddress()"><div id="t-address-hint" style="color:#64748b;font-size:11px;margin-top:4px;"></div></div>' +
                         '<div class="form-group"><label>Antal register</label><input type="number" id="t-quantity" value="' + (cfg.quantity || 2) + '" min="1"><small style="color:#64748b;">S&#228;tts automatiskt av datatyp</small></div>' +
                     '</div>' +
                     '<div class="form-row-3">' +
@@ -841,6 +849,7 @@
                     '</div>'
                 );
                 if (!editId) autoSetQuantity();
+                autoFixAddress();
             } else {
                 showModal(
                     '<h3>' + (editId ? 'Redigera' : 'Ny') + ' OPC UA-tagg</h3>' +
@@ -865,6 +874,47 @@
             if (!dt || !qt) return;
             const map = { uint16: 1, int16: 1, uint32: 2, int32: 2, float32: 2, float64: 4 };
             qt.value = map[dt.value] || 1;
+        }
+
+        function autoFixAddress() {
+            const el = document.getElementById('t-address');
+            const hint = document.getElementById('t-address-hint');
+            if (!el || !hint) return;
+            const val = parseInt(el.value);
+            if (isNaN(val)) { hint.textContent = ''; return; }
+            if (val >= 40001 && val <= 49999) {
+                hint.innerHTML = '<span style="color:#fbbf24;">&#9888; PLC-notation detekterad! ' + val + ' &rarr; faktisk adress är <strong>' + (val - 40001) + '</strong>. Klicka h&#228;r f&#246;r att r&#228;tta.</span>';
+                hint.style.cursor = 'pointer';
+                hint.onclick = function() {
+                    el.value = val - 40001;
+                    hint.innerHTML = '<span style="color:#4ade80;">&#10004; Adress korrigerad till ' + (val - 40001) + '</span>';
+                    hint.onclick = null;
+                };
+            } else if (val >= 30001 && val <= 39999) {
+                hint.innerHTML = '<span style="color:#fbbf24;">&#9888; Input register PLC-notation! ' + val + ' &rarr; faktisk adress är <strong>' + (val - 30001) + '</strong>. Klicka h&#228;r.</span>';
+                hint.style.cursor = 'pointer';
+                hint.onclick = function() {
+                    el.value = val - 30001;
+                    document.getElementById('t-registerType').value = 'input';
+                    hint.innerHTML = '<span style="color:#4ade80;">&#10004; Adress korrigerad till ' + (val - 30001) + ' (Input)</span>';
+                    hint.onclick = null;
+                };
+            } else if (val >= 10001 && val <= 19999) {
+                hint.innerHTML = '<span style="color:#fbbf24;">&#9888; Coil PLC-notation! ' + val + ' &rarr; faktisk adress är <strong>' + (val - 10001) + '</strong>. Klicka h&#228;r.</span>';
+                hint.style.cursor = 'pointer';
+                hint.onclick = function() {
+                    el.value = val - 10001;
+                    document.getElementById('t-registerType').value = 'coil';
+                    hint.innerHTML = '<span style="color:#4ade80;">&#10004; Adress korrigerad till ' + (val - 10001) + ' (Coil)</span>';
+                    hint.onclick = null;
+                };
+            } else if (val >= 1 && val <= 9999) {
+                hint.innerHTML = '<span style="color:#64748b;">Adress ' + val + ' (0-baserat). Om enheten anv&#228;nder 1-baserat: kryssa i "Adress offset +1".</span>';
+                hint.onclick = null;
+            } else {
+                hint.textContent = '';
+                hint.onclick = null;
+            }
         }
 
         async function showBulkAddRegisters(connId) {
