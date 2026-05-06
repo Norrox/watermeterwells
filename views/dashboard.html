@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industriell Logger - Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { background: #1a202c; color: #e2e8f0; }
+        .card { background: #2d3748; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        .stat-card { background: #2d3748; border-radius: 8px; padding: 16px; border-left: 4px solid #4299e1; }
+        .stat-card.green { border-left-color: #48bb78; }
+        .stat-card.yellow { border-left-color: #ecc94b; }
+        .stat-card.purple { border-left-color: #9f7aea; }
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; text-transform: uppercase; }
+        .badge-hourly { background: #2b6cb0; }
+        .badge-daily { background: #2f855a; }
+        .badge-weekly { background: #975a16; }
+        .badge-monthly { background: #6b46c1; }
+        .badge-yearly { background: #c53030; }
+        .tab-btn { padding: 8px 16px; border-radius: 6px 6px 0 0; cursor: pointer; border: none; background: #2d3748; color: #a0aec0; }
+        .tab-btn.active { background: #4299e1; color: white; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-8 flex flex-wrap justify-between items-center gap-4">
+            <h1 class="text-2xl md:text-3xl font-bold text-blue-400">Driftövervakning: Flöde & Mätare</h1>
+            <div class="flex items-center gap-4">
+                <div id="statusBadge" class="px-4 py-2 rounded bg-green-900 text-green-300 border border-green-500 text-sm">System Aktivt</div>
+                <div id="modeBadge" class="px-3 py-1 rounded bg-yellow-900 text-yellow-300 border border-yellow-600 text-xs">DEMO</div>
+            </div>
+        </header>
+
+        <!-- Statistik-kort -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="stat-card">
+                <div class="text-xs text-gray-400 uppercase">Senaste flöde</div>
+                <div id="statLatest" class="text-2xl font-bold text-blue-300">--</div>
+                <div class="text-xs text-gray-500">L/min</div>
+            </div>
+            <div class="stat-card green">
+                <div class="text-xs text-gray-400 uppercase">Snittflöde</div>
+                <div id="statAvg" class="text-2xl font-bold text-green-300">--</div>
+                <div class="text-xs text-gray-500">L/min</div>
+            </div>
+            <div class="stat-card yellow">
+                <div class="text-xs text-gray-400 uppercase">Prover totalt</div>
+                <div id="statSamples" class="text-2xl font-bold text-yellow-300">--</div>
+                <div class="text-xs text-gray-500">mätningar</div>
+            </div>
+            <div class="stat-card purple">
+                <div class="text-xs text-gray-400 uppercase">Max flöde</div>
+                <div id="statMax" class="text-2xl font-bold text-purple-300">--</div>
+                <div class="text-xs text-gray-500">L/min</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Flödesgraf -->
+            <div class="lg:col-span-2 card">
+                <h2 class="text-xl mb-4 font-semibold">Realtidsflöde (L/min)</h2>
+                <canvas id="flowChart" height="150"></canvas>
+            </div>
+
+            <!-- Mätarställningar -->
+            <div class="card">
+                <h2 class="text-xl mb-4 font-semibold">Senaste Mätarställningar</h2>
+                <div id="meterList" class="space-y-2 overflow-y-auto max-h-64 text-sm"></div>
+            </div>
+        </div>
+
+        <!-- API-tabbar -->
+        <div class="mt-8">
+            <div class="flex gap-1">
+                <button class="tab-btn active" data-tab="apidocs">API</button>
+                <button class="tab-btn" data-tab="rawdata">Rådata</button>
+            </div>
+            <div class="card" style="border-radius: 0 8px 8px 8px;">
+                <div id="tab-apidocs" class="tab-content active">
+                    <h3 class="text-lg font-semibold mb-3 text-blue-300">Tillgängliga API-endpoints</h3>
+                    <div class="space-y-2 text-sm font-mono">
+                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/data <span class="text-gray-500">— Kombinerad (flow + meters)</span></div>
+                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/flow?from=&to=&source=&limit= <span class="text-gray-500">— Flödesdata</span></div>
+                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/meters?type=hourly&source=&limit= <span class="text-gray-500">— Mätarställningar</span></div>
+                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/stats <span class="text-gray-500">— Statistik</span></div>
+                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/health <span class="text-gray-500">— Systemhälsa</span></div>
+                    </div>
+                </div>
+                <div id="tab-rawdata" class="tab-content">
+                    <pre id="rawJson" class="text-xs overflow-auto max-h-96 text-green-300 bg-gray-900 p-4 rounded"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('flowChart').getContext('2d');
+        const flowChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Flödeshastighet',
+                    data: [],
+                    borderColor: '#63b3ed',
+                    backgroundColor: 'rgba(99, 179, 237, 0.2)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                animation: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#4a5568' } },
+                    x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        async function updateDashboard() {
+            try {
+                const [dataRes, statsRes] = await Promise.all([
+                    fetch('/api/data'),
+                    fetch('/api/stats')
+                ]);
+                const data = await dataRes.json();
+                const stats = await statsRes.json();
+
+                flowChart.data.labels = data.flow.map(f => new Date(f.timestamp).toLocaleTimeString());
+                flowChart.data.datasets[0].data = data.flow.map(f => f.flow_rate);
+                flowChart.update('none');
+
+                document.getElementById('statLatest').textContent = stats.latestFlow ? stats.latestFlow.toFixed(1) : '--';
+                document.getElementById('statAvg').textContent = stats.avgFlow || '--';
+                document.getElementById('statSamples').textContent = stats.totalSamples || '--';
+                document.getElementById('statMax').textContent = stats.maxFlow || '--';
+
+                const list = document.getElementById('meterList');
+                list.innerHTML = data.meters.map(m => {
+                    const badgeClass = 'badge badge-' + m.interval_type;
+                    return '<div class="flex justify-between items-center border-b border-gray-600 pb-1">' +
+                        '<div><span class="' + badgeClass + '">' + m.interval_type + '</span> <span class="text-gray-400 ml-2">' + new Date(m.timestamp).toLocaleString() + '</span></div>' +
+                        '<span class="font-mono text-blue-300">' + m.reading_value + ' m³</span>' +
+                    '</div>';
+                }).join('');
+
+                document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
+            } catch (e) {
+                console.error('Dashboard uppdateringsfel:', e);
+                document.getElementById('statusBadge').textContent = 'Fel';
+                document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-red-900 text-red-300 border border-red-500 text-sm';
+            }
+        }
+
+        async function checkHealth() {
+            try {
+                const res = await fetch('/api/health');
+                const health = await res.json();
+                const mode = document.getElementById('modeBadge');
+                mode.textContent = health.mode.toUpperCase();
+                if (health.status === 'ok') {
+                    document.getElementById('statusBadge').textContent = 'System Aktivt';
+                    document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-green-900 text-green-300 border border-green-500 text-sm';
+                } else {
+                    document.getElementById('statusBadge').textContent = 'Degraded';
+                    document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-yellow-900 text-yellow-300 border border-yellow-500 text-sm';
+                }
+            } catch {
+                document.getElementById('statusBadge').textContent = 'Nerkopplad';
+                document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-red-900 text-red-300 border border-red-500 text-sm';
+            }
+        }
+
+        setInterval(updateDashboard, 1000);
+        setInterval(checkHealth, 10000);
+        updateDashboard();
+        checkHealth();
+    </script>
+</body>
+</html>
