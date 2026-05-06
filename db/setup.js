@@ -58,6 +58,34 @@ const USERS_TABLE = `
   )
 `;
 
+const DASHBOARDS_TABLE = `
+  CREATE TABLE IF NOT EXISTS dashboards (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(120) NOT NULL UNIQUE,
+    description TEXT DEFAULT NULL,
+    is_public BOOLEAN DEFAULT FALSE,
+    created_by INT DEFAULT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  )
+`;
+
+const DASHBOARD_WIDGETS_TABLE = `
+  CREATE TABLE IF NOT EXISTS dashboard_widgets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    dashboard_id INT NOT NULL,
+    title VARCHAR(100) NOT NULL,
+    widget_type ENUM('well', 'flow_meter', 'pressure_meter', 'level_meter', 'gauge', 'chart') NOT NULL DEFAULT 'gauge',
+    connection_id INT DEFAULT NULL,
+    tag_id INT DEFAULT NULL,
+    config JSON DEFAULT NULL,
+    position INT DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (dashboard_id) REFERENCES dashboards(id) ON DELETE CASCADE
+  )
+`;
+
 async function setupDatabase() {
   let conn;
   try {
@@ -67,6 +95,8 @@ async function setupDatabase() {
     await conn.query(CONNECTIONS_TABLE);
     await conn.query(TAGS_TABLE);
     await conn.query(USERS_TABLE);
+    await conn.query(DASHBOARDS_TABLE);
+    await conn.query(DASHBOARD_WIDGETS_TABLE);
 
     const rows = await conn.query('SELECT COUNT(*) AS cnt FROM users');
     if (Number(rows[0].cnt) === 0) {

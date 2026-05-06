@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
+
+        .pub-header { background: #1e293b; border-bottom: 1px solid #334155; padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+        .pub-header h1 { font-size: 20px; color: #60a5fa; display: flex; align-items: center; gap: 8px; }
+        .pub-header .meta { color: #64748b; font-size: 12px; }
+        .pub-header a { color: #60a5fa; text-decoration: none; font-size: 13px; }
+
+        .pub-container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+        .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .kpi-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+        .kpi-card .kpi-info {}
+        .kpi-card .kpi-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: .5px; }
+        .kpi-card .kpi-value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+        .kpi-card .kpi-unit { font-size: 14px; font-weight: 400; color: #64748b; }
+        .kpi-card .kpi-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+        .kpi-icon.blue { background: #172554; }
+        .kpi-icon.green { background: #14532d; }
+        .kpi-icon.yellow { background: #713f12; }
+        .kpi-icon.red { background: #7f1d1d; }
+
+        .main-chart-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 20px; }
+        .main-chart-card h2 { font-size: 16px; margin-bottom: 4px; }
+        .main-chart-card .subtitle { color: #64748b; font-size: 13px; margin-bottom: 16px; }
+
+        .widget-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .widget-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; transition: box-shadow .2s; }
+        .widget-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+        .widget-card .wc-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .widget-card .wc-title { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        .widget-card .wc-title .dot { width: 10px; height: 10px; border-radius: 50%; }
+        .widget-card .wc-value-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 12px; }
+        .widget-card .wc-value { font-size: 26px; font-weight: 700; }
+        .widget-card .wc-unit { font-size: 13px; color: #64748b; margin-bottom: 3px; }
+        .widget-card .wc-trend { margin-left: auto; display: flex; align-items: center; gap: 4px; font-size: 13px; margin-bottom: 3px; }
+        .wc-trend.up { color: #4ade80; }
+        .wc-trend.down { color: #f87171; }
+        .wc-trend.flat { color: #64748b; }
+        .widget-card .wc-sparkline { height: 48px; }
+
+        .status-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .status-dot.ok { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+        .status-dot.warn { background: #eab308; }
+        .status-dot.err { background: #ef4444; }
+
+        .empty-state { text-align: center; padding: 60px 20px; color: #64748b; }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        .login-prompt { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+        .login-box { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 40px; width: 360px; text-align: center; }
+        .login-box h2 { color: #60a5fa; margin-bottom: 24px; }
+        .form-group { margin-bottom: 14px; text-align: left; }
+        .form-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+        .form-group input { width: 100%; padding: 9px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 14px; }
+        .form-group input:focus { outline: none; border-color: #3b82f6; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; font-weight: 500; }
+        .btn-primary { background: #2563eb; color: #fff; width: 100%; margin-top: 8px; }
+        .login-error { color: #f87171; font-size: 13px; margin-top: 8px; min-height: 20px; }
+
+        @media (max-width: 768px) {
+            .kpi-row { grid-template-columns: 1fr 1fr; }
+            .widget-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div id="loginPrompt" class="login-prompt" style="display:none;">
+        <div class="login-box">
+            <h2>&#128274; Privat Dashboard</h2>
+            <p style="color:#94a3b8;margin-bottom:16px;font-size:13px;">Denna dashboard kr&#228;ver inloggning.</p>
+            <div class="form-group"><label>Anv&#228;ndarnamn</label><input type="text" id="loginUser" value="admin"></div>
+            <div class="form-group"><label>L&#246;senord</label><input type="password" id="loginPass"></div>
+            <button class="btn btn-primary" onclick="doLogin()">Logga in</button>
+            <div id="loginError" class="login-error"></div>
+        </div>
+    </div>
+
+    <div id="app" style="display:none;">
+        <header class="pub-header">
+            <div>
+                <h1 id="dashTitle">&#128202; Dashboard</h1>
+                <div class="meta" id="dashMeta"></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;">
+                <div class="status-indicator" id="liveStatus">
+                    <span class="status-dot ok"></span> Live
+                </div>
+                <a href="/">Admin</a>
+            </div>
+        </header>
+
+        <div class="pub-container">
+            <div class="kpi-row" id="kpiRow"></div>
+            <div class="main-chart-card">
+                <h2>&#214;vergripande trend</h2>
+                <div class="subtitle">Alla m&#228;tpunkter kombinerade</div>
+                <canvas id="mainChart" height="140"></canvas>
+            </div>
+            <h3 style="margin-bottom:12px;color:#94a3b8;font-size:15px;">M&#228;tpunkter</h3>
+            <div class="widget-grid" id="widgetGrid"></div>
+        </div>
+    </div>
+
+    <script>
+        const WIDGET_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
+        const WIDGET_ICONS = { well: '&#128167;', flow_meter: '&#128167;', pressure_meter: '&#9883;', level_meter: '&#9679;', gauge: '&#128200;', chart: '&#128202;' };
+        let slug = window.location.pathname.replace('/d/', '');
+        let dashboard = null;
+        let sparkCharts = {};
+        let mainChart = null;
+        let historyCache = {};
+
+        const ctx = document.getElementById('mainChart').getContext('2d');
+        mainChart = new Chart(ctx, {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: {
+                responsive: true, animation: false,
+                scales: { y: { beginAtZero: true, grid: {color:'#1e293b'} }, x: { grid: {display:false}, ticks: {maxTicksLimit:12} } },
+                plugins: { legend: { labels: { color: '#94a3b8', usePointStyle: true, padding: 16 } } }
+            }
+        });
+
+        async function loadDashboard() {
+            try {
+                const res = await fetch('/api/dashboards/slug/' + encodeURIComponent(slug));
+                if (res.status === 401) {
+                    document.getElementById('loginPrompt').style.display = 'flex';
+                    document.getElementById('app').style.display = 'none';
+                    return;
+                }
+                dashboard = await res.json();
+                document.getElementById('app').style.display = 'block';
+                document.getElementById('loginPrompt').style.display = 'none';
+                render();
+            } catch {
+                document.getElementById('app').style.display = 'block';
+                document.getElementById('loginPrompt').style.display = 'none';
+                document.getElementById('dashTitle').innerHTML = '&#10060; Dashboard hittades inte';
+                document.getElementById('widgetGrid').innerHTML = '<div class="empty-state"><div class="icon">&#128533;</div><p>Kunde inte ladda dashboard</p></div>';
+            }
+        }
+
+        function render() {
+            document.title = dashboard.name;
+            document.getElementById('dashTitle').innerHTML = (WIDGET_ICONS[dashboard.widgets && dashboard.widgets[0] ? dashboard.widgets[0].widget_type : 'chart'] || '&#128202;') + ' ' + esc(dashboard.name);
+            document.getElementById('dashMeta').textContent = dashboard.description || '';
+
+            const widgets = dashboard.widgets || [];
+            if (!widgets.length) {
+                document.getElementById('widgetGrid').innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div><p>Inga widgetar konfigurerade</p></div>';
+                return;
+            }
+
+            renderKPIs(widgets);
+            renderWidgets(widgets);
+            loadHistoryForAll(widgets);
+        }
+
+        function renderKPIs(widgets) {
+            const totalValue = widgets.reduce((s, w) => s + (w.tag_last_value || 0), 0);
+            const withData = widgets.filter(w => w.tag_last_value !== null && w.tag_last_value !== undefined);
+            const alerts = widgets.filter(w => {
+                const cfg = w.config || {};
+                const v = w.tag_last_value;
+                if (v === null || v === undefined) return false;
+                if (cfg.warnLow !== null && cfg.warnLow !== undefined && v < cfg.warnLow) return true;
+                if (cfg.warnHigh !== null && cfg.warnHigh !== undefined && v > cfg.warnHigh) return true;
+                return false;
+            });
+
+            document.getElementById('kpiRow').innerHTML =
+                '<div class="kpi-card">' +
+                    '<div class="kpi-info"><div class="kpi-label">Totalt v&#228;rde</div><div class="kpi-value" style="color:#60a5fa;">' + totalValue.toFixed(1) + ' <span class="kpi-unit">total</span></div></div>' +
+                    '<div class="kpi-icon blue">&#128167;</div>' +
+                '</div>' +
+                '<div class="kpi-card">' +
+                    '<div class="kpi-info"><div class="kpi-label">Aktiva m&#228;tpunkter</div><div class="kpi-value" style="color:#4ade80;">' + withData.length + ' <span class="kpi-unit">/ ' + widgets.length + '</span></div></div>' +
+                    '<div class="kpi-icon green">&#10003;</div>' +
+                '</div>' +
+                '<div class="kpi-card">' +
+                    '<div class="kpi-info"><div class="kpi-label">Varningar</div><div class="kpi-value" style="color:' + (alerts.length ? '#fbbf24' : '#4ade80') + ';">' + (alerts.length || 'Inga') + '</div></div>' +
+                    '<div class="kpi-icon ' + (alerts.length ? 'yellow' : 'green') + ';">' + (alerts.length ? '&#9888;' : '&#10003;') + '</div>' +
+                '</div>';
+        }
+
+        function renderWidgets(widgets) {
+            const grid = document.getElementById('widgetGrid');
+            grid.innerHTML = widgets.map((w, i) => {
+                const cfg = w.config || {};
+                const color = WIDGET_COLORS[i % WIDGET_COLORS.length];
+                const value = w.tag_last_value !== null && w.tag_last_value !== undefined ? w.tag_last_value.toFixed(1) : '--';
+                const unit = cfg.unit || '';
+                const icon = WIDGET_ICONS[w.widget_type] || '&#128200;';
+                const warnLow = cfg.warnLow;
+                const warnHigh = cfg.warnHigh;
+                const isAlert = (warnLow !== null && warnLow !== undefined && w.tag_last_value < warnLow) ||
+                                (warnHigh !== null && warnHigh !== undefined && w.tag_last_value > warnHigh);
+                const statusClass = w.tag_last_value === null || w.tag_last_value === undefined ? 'err' : (isAlert ? 'warn' : 'ok');
+
+                return '<div class="widget-card" style="border-top:3px solid ' + color + ';">' +
+                    '<div class="wc-header">' +
+                        '<div class="wc-title"><span class="dot" style="background:' + color + ';"></span> ' + esc(w.title) + '</div>' +
+                        '<div class="status-indicator"><span class="status-dot ' + statusClass + '"></span></div>' +
+                    '</div>' +
+                    '<div class="wc-value-row">' +
+                        '<span class="wc-value" style="color:' + color + ';">' + value + '</span>' +
+                        '<span class="wc-unit">' + esc(unit) + '</span>' +
+                        '<span class="wc-trend flat" id="trend-' + w.id + '">--</span>' +
+                    '</div>' +
+                    '<div class="wc-sparkline"><canvas id="spark-' + w.id + '"></canvas></div>' +
+                '</div>';
+            }).join('');
+
+            setTimeout(() => {
+                widgets.forEach(w => {
+                    const canvas = document.getElementById('spark-' + w.id);
+                    if (!canvas) return;
+                    const color = WIDGET_COLORS[widgets.indexOf(w) % WIDGET_COLORS.length];
+                    sparkCharts[w.id] = new Chart(canvas.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color + '20', fill: true, tension: .4, pointRadius: 0, borderWidth: 2 }] },
+                        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+                    });
+                });
+            }, 50);
+        }
+
+        async function loadHistoryForAll(widgets) {
+            for (const w of widgets) {
+                if (!w.tag_name || !w.connection_name) continue;
+                const source = w.connection_name + '_' + w.tag_name;
+                try {
+                    const res = await fetch('/api/dashboards/history/' + encodeURIComponent(source) + '?minutes=60');
+                    const rows = await res.json();
+                    historyCache[w.id] = rows;
+
+                    if (sparkCharts[w.id] && rows.length) {
+                        const last20 = rows.slice(-20);
+                        sparkCharts[w.id].data.labels = last20.map(r => new Date(r.timestamp).toLocaleTimeString());
+                        sparkCharts[w.id].data.datasets[0].data = last20.map(r => r.flow_rate);
+                        sparkCharts[w.id].update('none');
+                    }
+                    if (rows.length >= 2) {
+                        const current = rows[rows.length - 1].flow_rate;
+                        const prev = rows[rows.length - 2].flow_rate;
+                        const trend = current - prev;
+                        const el = document.getElementById('trend-' + w.id);
+                        if (el) {
+                            el.className = 'wc-trend ' + (trend > 0.01 ? 'up' : trend < -0.01 ? 'down' : 'flat');
+                            el.innerHTML = (trend > 0 ? '&#9650;' : trend < 0 ? '&#9660;' : '&#9644;') + ' ' + Math.abs(trend).toFixed(1);
+                        }
+                    }
+                } catch {}
+            }
+            updateMainChart(widgets);
+        }
+
+        function updateMainChart(widgets) {
+            const colors = widgets.map((_, i) => WIDGET_COLORS[i % WIDGET_COLORS.length]);
+            const maxLen = Math.max(...Object.values(historyCache).map(r => r.length), 0);
+            if (!maxLen) return;
+
+            const refRows = Object.values(historyCache).find(r => r.length === maxLen) || [];
+            const labels = refRows.map(r => new Date(r.timestamp).toLocaleTimeString());
+
+            const datasets = widgets.map((w, i) => {
+                const rows = historyCache[w.id] || [];
+                return {
+                    label: w.title,
+                    data: rows.map(r => r.flow_rate),
+                    borderColor: colors[i],
+                    backgroundColor: colors[i] + '15',
+                    fill: false,
+                    tension: .4,
+                    pointRadius: 0,
+                    borderWidth: 2
+                };
+            });
+
+            mainChart.data.labels = labels;
+            mainChart.data.datasets = datasets;
+            mainChart.update('none');
+        }
+
+        async function refreshLive() {
+            if (!dashboard) return;
+            try {
+                const res = await fetch('/api/dashboards/slug/' + encodeURIComponent(slug));
+                if (!res.ok) return;
+                dashboard = await res.json();
+                const widgets = dashboard.widgets || [];
+                widgets.forEach((w, i) => {
+                    const card = document.getElementById('spark-' + w.id);
+                    if (!card) return;
+                    const valueEl = card.closest('.widget-card').querySelector('.wc-value');
+                    if (valueEl && w.tag_last_value !== null && w.tag_last_value !== undefined) {
+                        valueEl.textContent = w.tag_last_value.toFixed(1);
+                    }
+                });
+                renderKPIs(widgets);
+            } catch {}
+        }
+
+        function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        async function doLogin() {
+            const u = document.getElementById('loginUser').value;
+            const p = document.getElementById('loginPass').value;
+            const errEl = document.getElementById('loginError');
+            errEl.textContent = '';
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                if (data.success) { loadDashboard(); }
+                else { errEl.textContent = data.error || 'Inloggningsfel'; }
+            } catch { errEl.textContent = 'Nätverksfel'; }
+        }
+
+        document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+        loadDashboard();
+        setInterval(refreshLive, 5000);
+    </script>
+</body>
+</html>

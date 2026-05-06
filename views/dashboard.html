@@ -130,6 +130,7 @@
                 <a class="active" data-page="dashboard"><span class="icon">&#9632;</span> Dashboard</a>
                 <a data-page="opcua"><span class="icon">&#9881;</span> OPC UA</a>
                 <a data-page="modbus"><span class="icon">&#9881;</span> Modbus TCP</a>
+                <a data-page="mydashboards"><span class="icon">&#9636;</span> Mina Dashboards</a>
                 <a data-page="help"><span class="icon">&#9432;</span> Hj&#228;lp</a>
                 <a data-page="settings"><span class="icon">&#9881;</span> Inst&#228;llningar</a>
             </div>
@@ -317,6 +318,17 @@
                     <div id="pwResult" style="margin-top:8px;font-size:13px;"></div>
                 </div>
             </div>
+
+            <!-- MY DASHBOARDS PAGE -->
+            <div id="page-mydashboards" class="page">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Mina Dashboards</h2>
+                        <button class="btn btn-success" onclick="showDashboardForm()">+ Ny Dashboard</button>
+                    </div>
+                    <div id="dashboardList"></div>
+                </div>
+            </div>
         </main>
     </div>
 
@@ -339,6 +351,7 @@
                 if (a.dataset.page === 'opcua') loadConnections('opcua');
                 if (a.dataset.page === 'modbus') loadConnections('modbus');
                 if (a.dataset.page === 'settings') loadSystemStatus();
+                if (a.dataset.page === 'mydashboards') loadDashboardList();
             });
         });
 
@@ -969,6 +982,259 @@
                     '</div>' +
                     '<h3 style="margin-top:16px;color:#94a3b8;">Anslutningar</h3>' + connHtml;
             } catch { el.innerHTML = '<p style="color:#f87171;">Kunde inte ladda systemstatus</p>'; }
+        }
+
+        // ── Dashboards ──
+        async function loadDashboardList() {
+            const el = document.getElementById('dashboardList');
+            el.innerHTML = '<div class="empty-state">Laddar...</div>';
+            try {
+                const res = await fetch('/api/dashboards/list');
+                const dashboards = await res.json();
+                if (!dashboards.length) {
+                    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div>Inga dashboards. Skapa en f&#246;r att b&#246;rja bygga visuella vyer.</div>';
+                    return;
+                }
+                el.innerHTML = '<table><tr><th>Namn</th><th>Slug / URL</th><th>Publik</th><th>Widgetar</th><th>Skapad</th><th>Åtgärder</th></tr>' +
+                    dashboards.map(d => {
+                        const pubBadge = d.is_public ? '<span class="badge badge-green">Publik</span>' : '<span class="badge badge-gray">Privat</span>';
+                        return '<tr>' +
+                            '<td><strong>' + esc(d.name) + '</strong>' + (d.description ? '<br><span style="color:#64748b;font-size:12px;">' + esc(d.description) + '</span>' : '') + '</td>' +
+                            '<td><a href="/d/' + d.slug + '" target="_blank" style="color:#60a5fa;">/d/' + d.slug + '</a></td>' +
+                            '<td>' + pubBadge + '</td>' +
+                            '<td id="dw-count-' + d.id + '">--</td>' +
+                            '<td style="color:#64748b;font-size:12px;">' + new Date(d.created_at).toLocaleDateString() + '</td>' +
+                            '<td><div class="btn-group">' +
+                                '<a href="/d/' + d.slug + '" target="_blank" class="btn btn-sm btn-outline">Visa</a>' +
+                                '<button class="btn btn-sm btn-primary" onclick="showDashboardBuilder(' + d.id + ')">Bygg</button>' +
+                                '<button class="btn btn-sm btn-outline" onclick="showDashboardForm(' + d.id + ')">Redigera</button>' +
+                                '<button class="btn btn-sm btn-danger" onclick="deleteDashboard(' + d.id + ')">Ta bort</button>' +
+                            '</div></td></tr>';
+                    }).join('') + '</table>';
+                dashboards.forEach(async d => {
+                    const r = await fetch('/api/dashboards/' + d.id);
+                    const full = await r.json();
+                    const countEl = document.getElementById('dw-count-' + d.id);
+                    if (countEl) countEl.textContent = (full.widgets || []).length;
+                });
+            } catch { el.innerHTML = '<div class="empty-state">Kunde inte ladda dashboards</div>'; }
+        }
+
+        async function showDashboardForm(editId) {
+            let db = null;
+            if (editId) {
+                const res = await fetch('/api/dashboards/' + editId);
+                db = await res.json();
+            }
+            showModal(
+                '<h3>' + (editId ? 'Redigera' : 'Ny') + ' Dashboard</h3>' +
+                '<div class="form-group"><label>Namn</label><input id="db-name" value="' + esc(db ? db.name : '') + '" placeholder="T.ex. Brunns&#246;versikt S&#246;dra"></div>' +
+                '<div class="form-group"><label>Beskrivning</label><textarea id="db-desc" rows="2" placeholder="Valfri beskrivning">' + esc(db ? db.description || '' : '') + '</textarea></div>' +
+                '<div class="form-group"><label><input type="checkbox" id="db-public" ' + (!db || db.is_public ? '' : '') + '> Publik (kr&#228;ver login om avmarkerad)</label></div>' +
+                '<p style="color:#64748b;font-size:12px;margin-bottom:12px;">URL: /d/' + (db ? db.slug : '(auto-genereras)') + '</p>' +
+                '<div class="modal-actions">' +
+                    '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                    '<button class="btn btn-primary" onclick="saveDashboard(' + (editId||'null') + ')">Spara</button>' +
+                '</div>'
+            );
+        }
+
+        async function saveDashboard(editId) {
+            const body = {
+                name: document.getElementById('db-name').value,
+                description: document.getElementById('db-desc').value || null,
+                is_public: document.getElementById('db-public').checked
+            };
+            const url = editId ? '/api/dashboards/' + editId : '/api/dashboards';
+            const method = editId ? 'PUT' : 'POST';
+            const res = await fetch(url, {method, headers: getAuthHeaders(), body: JSON.stringify(body)});
+            if (res.ok) { closeModal(); loadDashboardList(); }
+            else { const d = await res.json(); alert(d.error); }
+        }
+
+        async function deleteDashboard(id) {
+            if (!confirm('Ta bort denna dashboard och alla widgetar?')) return;
+            await fetch('/api/dashboards/' + id, {method:'DELETE', headers:getAuthHeaders()});
+            loadDashboardList();
+        }
+
+        async function showDashboardBuilder(dashboardId) {
+            let dashboard, connections = [];
+            try {
+                const [dbRes, connRes] = await Promise.all([
+                    fetch('/api/dashboards/' + dashboardId),
+                    fetch('/api/admin/connections', {headers:getAuthHeaders()})
+                ]);
+                dashboard = await dbRes.json();
+                if (connRes.ok) connections = await connRes.json();
+            } catch { alert('Kunde inte ladda dashboard'); return; }
+
+            const widgets = dashboard.widgets || [];
+            const connOptions = connections.map(c => {
+                const tags = (c.tags || []).map(t => '<option value="' + t.id + '">' + esc(t.name) + '</option>').join('');
+                return '<optgroup label="' + esc(c.name) + ' (' + c.type.toUpperCase() + ')">' + tags + '</optgroup>';
+            }).join('');
+
+            const widgetTypes = [
+                {val:'well', label:'Brunn (fl&#246;de + trend)'},
+                {val:'flow_meter', label:'Fl&#246;desm&#228;tare'},
+                {val:'pressure_meter', label:'Tryckm&#228;tare'},
+                {val:'level_meter', label:'Niv&#229;m&#228;tare'},
+                {val:'gauge', label:'Generell m&#228;tare'},
+                {val:'chart', label:'Historisk graf'}
+            ];
+
+            const widgetsHtml = widgets.map((w, i) => {
+                const cfg = w.config || {};
+                return '<div class="card" style="border-left:3px solid ' + (WIDGET_COLORS[i % WIDGET_COLORS.length]) + ';">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;">' +
+                        '<div><strong>' + esc(w.title) + '</strong> <span class="badge badge-blue">' + w.widget_type + '</span>' +
+                        (w.tag_name ? ' <span style="color:#64748b;font-size:12px;">&#8594; ' + esc(w.tag_name) + '</span>' : '') + '</div>' +
+                        '<div class="btn-group">' +
+                            '<button class="btn btn-sm btn-outline" onclick="editDashboardWidget(' + dashboardId + ',' + w.id + ')">Redigera</button>' +
+                            '<button class="btn btn-sm btn-outline" onclick="moveWidget(' + dashboardId + ',' + w.id + ',\'up\')">&#9650;</button>' +
+                            '<button class="btn btn-sm btn-outline" onclick="moveWidget(' + dashboardId + ',' + w.id + ',\'down\')">&#9660;</button>' +
+                            '<button class="btn btn-sm btn-danger" onclick="removeDashboardWidget(' + dashboardId + ',' + w.id + ')">X</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+
+            showModal(
+                '<h3>Dashboard: ' + esc(dashboard.name) + '</h3>' +
+                '<p style="color:#64748b;margin-bottom:16px;">URL: <a href="/d/' + dashboard.slug + '" target="_blank" style="color:#60a5fa;">/d/' + dashboard.slug + '</a></p>' +
+                '<h4 style="margin-bottom:12px;color:#94a3b8;">Widgetar (' + widgets.length + ')</h4>' +
+                (widgetsHtml || '<div class="empty-state" style="padding:20px;">Inga widgetar &#228;nnu. L&#228;gg till en nedan.</div>') +
+                '<hr style="border-color:#334155;margin:20px 0;">' +
+                '<h4 style="margin-bottom:12px;color:#60a5fa;">L&#228;gg till widget</h4>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Titel</label><input id="dw-title" placeholder="T.ex. Brunnen 1 Fl&#246;de"></div>' +
+                    '<div class="form-group"><label>Typ</label><select id="dw-type">' +
+                        widgetTypes.map(t => '<option value="' + t.val + '">' + t.label + '</option>').join('') +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="form-group"><label>Tagg / Register</label><select id="dw-tag">' +
+                    '<option value="">-- V&#228;lj tagg --</option>' + connOptions +
+                '</select></div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Enhet</label><input id="dw-unit" value="L/min" placeholder="T.ex. L/min, bar, &#176;C"></div>' +
+                    '<div class="form-group"><label>Ikon</label><select id="dw-icon">' +
+                        '<option value="droplet">Vattendroppe</option>' +
+                        '<option value="gauge">M&#228;tare</option>' +
+                        '<option value="pressure">Tryck</option>' +
+                        '<option value="thermometer">Temperatur</option>' +
+                        '<option value="chart">Graf</option>' +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Varnings-gr&#228;ns l&#229;g</label><input type="number" step="0.1" id="dw-warnLow" placeholder="T.ex. 10"></div>' +
+                    '<div class="form-group"><label>Varnings-gr&#228;ns h&#246;g</label><input type="number" step="0.1" id="dw-warnHigh" placeholder="T.ex. 100"></div>' +
+                '</div>' +
+                '<button class="btn btn-success" onclick="addWidgetToDashboard(' + dashboardId + ')">+ L&#228;gg till widget</button>' +
+                '<div class="modal-actions" style="margin-top:16px;"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>'
+            );
+        }
+
+        const WIDGET_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
+
+        async function addWidgetToDashboard(dashboardId) {
+            const tagVal = document.getElementById('dw-tag').value;
+            const body = {
+                title: document.getElementById('dw-title').value,
+                widget_type: document.getElementById('dw-type').value,
+                tag_id: tagVal ? parseInt(tagVal) : null,
+                config: {
+                    unit: document.getElementById('dw-unit').value,
+                    icon: document.getElementById('dw-icon').value,
+                    warnLow: document.getElementById('dw-warnLow').value ? parseFloat(document.getElementById('dw-warnLow').value) : null,
+                    warnHigh: document.getElementById('dw-warnHigh').value ? parseFloat(document.getElementById('dw-warnHigh').value) : null
+                }
+            };
+            if (!body.title) { alert('Titel krävs'); return; }
+            const res = await fetch('/api/dashboards/' + dashboardId + '/widgets', {
+                method:'POST', headers:getAuthHeaders(), body: JSON.stringify(body)
+            });
+            if (res.ok) showDashboardBuilder(dashboardId);
+            else { const d = await res.json(); alert(d.error); }
+        }
+
+        async function editDashboardWidget(dashboardId, widgetId) {
+            const res = await fetch('/api/dashboards/' + dashboardId);
+            const dashboard = await res.json();
+            const widget = (dashboard.widgets || []).find(w => w.id === widgetId);
+            if (!widget) return;
+            const cfg = widget.config || {};
+
+            const connRes = await fetch('/api/admin/connections', {headers:getAuthHeaders()});
+            const connections = connRes.ok ? await connRes.json() : [];
+            const connOptions = connections.map(c => {
+                const tags = (c.tags || []).map(t => '<option value="' + t.id + '"' + (t.id === widget.tag_id ? ' selected' : '') + '>' + esc(t.name) + '</option>').join('');
+                return '<optgroup label="' + esc(c.name) + ' (' + c.type.toUpperCase() + ')">' + tags + '</optgroup>';
+            }).join('');
+
+            const widgetTypes = ['well','flow_meter','pressure_meter','level_meter','gauge','chart'];
+
+            showModal(
+                '<h3>Redigera widget</h3>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Titel</label><input id="dw-title" value="' + esc(widget.title) + '"></div>' +
+                    '<div class="form-group"><label>Typ</label><select id="dw-type">' +
+                        widgetTypes.map(t => '<option value="' + t + '"' + (t===widget.widget_type?' selected':'') + '>' + t.replace(/_/g,' ') + '</option>').join('') +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="form-group"><label>Tagg</label><select id="dw-tag"><option value="">-- Ingen --</option>' + connOptions + '</select></div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Enhet</label><input id="dw-unit" value="' + esc(cfg.unit || '') + '"></div>' +
+                    '<div class="form-group"><label>Ikon</label><select id="dw-icon">' +
+                        ['droplet','gauge','pressure','thermometer','chart'].map(i => '<option value="' + i + '"' + (i===cfg.icon?' selected':'') + '>' + i + '</option>').join('') +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Varnings-gr&#228;ns l&#229;g</label><input type="number" step="0.1" id="dw-warnLow" value="' + (cfg.warnLow || '') + '"></div>' +
+                    '<div class="form-group"><label>Varnings-gr&#228;ns h&#246;g</label><input type="number" step="0.1" id="dw-warnHigh" value="' + (cfg.warnHigh || '') + '"></div>' +
+                '</div>' +
+                '<div class="modal-actions">' +
+                    '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                    '<button class="btn btn-primary" onclick="updateDashboardWidget(' + dashboardId + ',' + widgetId + ')">Spara</button>' +
+                '</div>'
+            );
+        }
+
+        async function updateDashboardWidget(dashboardId, widgetId) {
+            const body = {
+                title: document.getElementById('dw-title').value,
+                widget_type: document.getElementById('dw-type').value,
+                tag_id: document.getElementById('dw-tag').value ? parseInt(document.getElementById('dw-tag').value) : null,
+                config: {
+                    unit: document.getElementById('dw-unit').value,
+                    icon: document.getElementById('dw-icon').value,
+                    warnLow: document.getElementById('dw-warnLow').value ? parseFloat(document.getElementById('dw-warnLow').value) : null,
+                    warnHigh: document.getElementById('dw-warnHigh').value ? parseFloat(document.getElementById('dw-warnHigh').value) : null
+                }
+            };
+            await fetch('/api/dashboards/widgets/' + widgetId, {
+                method:'PUT', headers:getAuthHeaders(), body: JSON.stringify(body)
+            });
+            showDashboardBuilder(dashboardId);
+        }
+
+        async function removeDashboardWidget(dashboardId, widgetId) {
+            if (!confirm('Ta bort denna widget?')) return;
+            await fetch('/api/dashboards/widgets/' + widgetId, {method:'DELETE', headers:getAuthHeaders()});
+            showDashboardBuilder(dashboardId);
+        }
+
+        async function moveWidget(dashboardId, widgetId, direction) {
+            const res = await fetch('/api/dashboards/' + dashboardId);
+            const dashboard = await res.json();
+            const widgets = dashboard.widgets || [];
+            const idx = widgets.findIndex(w => w.id === widgetId);
+            if (idx < 0) return;
+            const newPos = direction === 'up' ? Math.max(0, widgets[idx].position - 1) : widgets[idx].position + 1;
+            await fetch('/api/dashboards/widgets/' + widgetId, {
+                method:'PUT', headers:getAuthHeaders(), body: JSON.stringify({position: newPos})
+            });
+            showDashboardBuilder(dashboardId);
         }
 
         // ── Init ──
