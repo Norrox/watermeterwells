@@ -3,194 +3,976 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Industriell Logger - Dashboard</title>
+    <title>Industriell Logger - Dashboard & Admin</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
-        body { background: #1a202c; color: #e2e8f0; }
-        .card { background: #2d3748; border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        .stat-card { background: #2d3748; border-radius: 8px; padding: 16px; border-left: 4px solid #4299e1; }
-        .stat-card.green { border-left-color: #48bb78; }
-        .stat-card.yellow { border-left-color: #ecc94b; }
-        .stat-card.purple { border-left-color: #9f7aea; }
-        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; text-transform: uppercase; }
-        .badge-hourly { background: #2b6cb0; }
-        .badge-daily { background: #2f855a; }
-        .badge-weekly { background: #975a16; }
-        .badge-monthly { background: #6b46c1; }
-        .badge-yearly { background: #c53030; }
-        .tab-btn { padding: 8px 16px; border-radius: 6px 6px 0 0; cursor: pointer; border: none; background: #2d3748; color: #a0aec0; }
-        .tab-btn.active { background: #4299e1; color: white; }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
+        .app { display: flex; min-height: 100vh; }
+
+        .sidebar { width: 220px; background: #1e293b; border-right: 1px solid #334155; display: flex; flex-direction: column; flex-shrink: 0; }
+        .sidebar-brand { padding: 20px; border-bottom: 1px solid #334155; }
+        .sidebar-brand h1 { font-size: 16px; color: #60a5fa; font-weight: 700; }
+        .sidebar-brand small { font-size: 11px; color: #64748b; }
+        .sidebar-nav { flex: 1; padding: 10px 0; }
+        .sidebar-nav a { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #94a3b8; text-decoration: none; cursor: pointer; transition: all .15s; }
+        .sidebar-nav a:hover { background: #334155; color: #e2e8f0; }
+        .sidebar-nav a.active { background: #1d4ed8; color: #fff; }
+        .sidebar-nav a .icon { width: 20px; text-align: center; }
+        .sidebar-footer { padding: 15px 20px; border-top: 1px solid #334155; font-size: 12px; }
+        #loginBtn { display: none; width: 100%; padding: 8px; background: #1d4ed8; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+        #logoutBtn { display: none; width: 100%; padding: 8px; background: #7f1d1d; color: #fca5a5; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; margin-top: 8px; }
+
+        .main { flex: 1; overflow-y: auto; padding: 24px; }
+        .page { display: none; }
+        .page.active { display: block; }
+
+        .card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+        .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .card-header h2 { font-size: 18px; color: #f1f5f9; }
+
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+        .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px; border-left: 4px solid #3b82f6; }
+        .stat-card.green { border-left-color: #22c55e; }
+        .stat-card.yellow { border-left-color: #eab308; }
+        .stat-card.purple { border-left-color: #a855f7; }
+        .stat-card .label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: .5px; }
+        .stat-card .value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+        .stat-card .unit { font-size: 11px; color: #475569; }
+
+        .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; text-transform: uppercase; }
+        .badge-green { background: #14532d; color: #4ade80; }
+        .badge-red { background: #7f1d1d; color: #fca5a5; }
+        .badge-yellow { background: #713f12; color: #fde047; }
+        .badge-blue { background: #1e3a5f; color: #60a5fa; }
+        .badge-gray { background: #374151; color: #9ca3af; }
+
+        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-success { background: #16a34a; color: #fff; }
+        .btn-success:hover { background: #15803d; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .btn-secondary { background: #374151; color: #d1d5db; }
+        .btn-secondary:hover { background: #4b5563; }
+        .btn-sm { padding: 5px 10px; font-size: 12px; }
+        .btn-outline { background: transparent; border: 1px solid #475569; color: #94a3b8; }
+        .btn-outline:hover { background: #334155; }
+
+        .btn-group { display: flex; gap: 6px; flex-wrap: wrap; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; padding: 10px 12px; color: #94a3b8; font-size: 12px; text-transform: uppercase; border-bottom: 1px solid #334155; }
+        td { padding: 10px 12px; border-bottom: 1px solid #1e293b; }
+        tr:hover td { background: #1e293b80; }
+
+        .form-group { margin-bottom: 14px; }
+        .form-group label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .3px; }
+        .form-group input, .form-group select, .form-group textarea { width: 100%; padding: 9px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 14px; }
+        .form-group input:focus, .form-group select:focus { outline: none; border-color: #3b82f6; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+
+        .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-overlay.show { display: flex; }
+        .modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; width: 90%; max-width: 600px; max-height: 85vh; overflow-y: auto; }
+        .modal h3 { font-size: 18px; margin-bottom: 16px; color: #f1f5f9; }
+        .modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px; }
+
+        .login-overlay { display: none; position: fixed; inset: 0; background: #0f172a; z-index: 2000; align-items: center; justify-content: center; }
+        .login-overlay.show { display: flex; }
+        .login-box { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 40px; width: 360px; text-align: center; }
+        .login-box h2 { color: #60a5fa; margin-bottom: 24px; }
+        .login-box .form-group { text-align: left; }
+        .login-box .btn { width: 100%; margin-top: 8px; }
+        .login-error { color: #f87171; font-size: 13px; margin-top: 8px; min-height: 20px; }
+
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+        .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+        .status-dot.error { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+        .status-dot.connecting { background: #eab308; animation: pulse 1s infinite; }
+        .status-dot.stopped { background: #475569; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+
+        .test-result { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-top: 10px; font-family: monospace; font-size: 13px; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+
+        .conn-item { border: 1px solid #334155; border-radius: 8px; margin-bottom: 12px; overflow: hidden; }
+        .conn-header { display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: #1e293b; cursor: pointer; }
+        .conn-header:hover { background: #263248; }
+        .conn-header .conn-name { flex: 1; font-weight: 600; }
+        .conn-header .conn-type { color: #64748b; font-size: 12px; }
+        .conn-body { display: none; padding: 16px; border-top: 1px solid #334155; background: #162032; }
+        .conn-body.open { display: block; }
+
+        .empty-state { text-align: center; padding: 40px; color: #64748b; }
+        .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+
+        .help-section { margin-bottom: 24px; }
+        .help-section h3 { color: #60a5fa; margin-bottom: 8px; font-size: 16px; }
+        .help-section p { color: #94a3b8; line-height: 1.7; margin-bottom: 8px; }
+        .help-section code { background: #0f172a; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #fbbf24; }
+        .help-section table { margin: 10px 0; }
+        .help-section th { color: #94a3b8; }
+
+        .tag-row { display: grid; grid-template-columns: auto 1fr auto auto auto auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #1e293b; }
+        .tag-row:last-child { border-bottom: none; }
     </style>
 </head>
-<body class="p-4 md:p-8">
-    <div class="max-w-7xl mx-auto">
-        <header class="mb-8 flex flex-wrap justify-between items-center gap-4">
-            <h1 class="text-2xl md:text-3xl font-bold text-blue-400">Driftövervakning: Flöde & Mätare</h1>
-            <div class="flex items-center gap-4">
-                <div id="statusBadge" class="px-4 py-2 rounded bg-green-900 text-green-300 border border-green-500 text-sm">System Aktivt</div>
-                <div id="modeBadge" class="px-3 py-1 rounded bg-yellow-900 text-yellow-300 border border-yellow-600 text-xs">DEMO</div>
+<body>
+    <div class="app">
+        <nav class="sidebar">
+            <div class="sidebar-brand">
+                <h1>WaterMeterWells</h1>
+                <small>Industriell Logger</small>
             </div>
-        </header>
+            <div class="sidebar-nav">
+                <a class="active" data-page="dashboard"><span class="icon">&#9632;</span> Dashboard</a>
+                <a data-page="opcua"><span class="icon">&#9881;</span> OPC UA</a>
+                <a data-page="modbus"><span class="icon">&#9881;</span> Modbus TCP</a>
+                <a data-page="help"><span class="icon">&#9432;</span> Hj&#228;lp</a>
+                <a data-page="settings"><span class="icon">&#9881;</span> Inst&#228;llningar</a>
+            </div>
+            <div class="sidebar-footer">
+                <div id="statusIndicator" style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+                    <span class="status-dot stopped"></span>
+                    <span style="color:#94a3b8;font-size:12px;">System Kontrollerar...</span>
+                </div>
+                <button id="loginBtn">Logga in (Admin)</button>
+                <button id="logoutBtn">Logga ut</button>
+                <div id="userDisplay" style="color:#64748b;font-size:12px;margin-top:4px;"></div>
+            </div>
+        </nav>
 
-        <!-- Statistik-kort -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div class="stat-card">
-                <div class="text-xs text-gray-400 uppercase">Senaste flöde</div>
-                <div id="statLatest" class="text-2xl font-bold text-blue-300">--</div>
-                <div class="text-xs text-gray-500">L/min</div>
-            </div>
-            <div class="stat-card green">
-                <div class="text-xs text-gray-400 uppercase">Snittflöde</div>
-                <div id="statAvg" class="text-2xl font-bold text-green-300">--</div>
-                <div class="text-xs text-gray-500">L/min</div>
-            </div>
-            <div class="stat-card yellow">
-                <div class="text-xs text-gray-400 uppercase">Prover totalt</div>
-                <div id="statSamples" class="text-2xl font-bold text-yellow-300">--</div>
-                <div class="text-xs text-gray-500">mätningar</div>
-            </div>
-            <div class="stat-card purple">
-                <div class="text-xs text-gray-400 uppercase">Max flöde</div>
-                <div id="statMax" class="text-2xl font-bold text-purple-300">--</div>
-                <div class="text-xs text-gray-500">L/min</div>
-            </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Flödesgraf -->
-            <div class="lg:col-span-2 card">
-                <h2 class="text-xl mb-4 font-semibold">Realtidsflöde (L/min)</h2>
-                <canvas id="flowChart" height="150"></canvas>
+        <main class="main">
+            <!-- LOGIN OVERLAY -->
+            <div id="loginOverlay" class="login-overlay">
+                <div class="login-box">
+                    <h2>Admin Inloggning</h2>
+                    <div class="form-group"><label>Anv&#228;ndarnamn</label><input type="text" id="loginUser" value="admin"></div>
+                    <div class="form-group"><label>L&#246;senord</label><input type="password" id="loginPass" value=""></div>
+                    <button class="btn btn-primary" onclick="doLogin()">Logga in</button>
+                    <div id="loginError" class="login-error"></div>
+                </div>
             </div>
 
-            <!-- Mätarställningar -->
-            <div class="card">
-                <h2 class="text-xl mb-4 font-semibold">Senaste Mätarställningar</h2>
-                <div id="meterList" class="space-y-2 overflow-y-auto max-h-64 text-sm"></div>
+            <!-- DASHBOARD PAGE -->
+            <div id="page-dashboard" class="page active">
+                <div class="stat-grid">
+                    <div class="stat-card"><div class="label">Senaste fl&#246;de</div><div class="value" id="statLatest" style="color:#60a5fa;">--</div><div class="unit">L/min</div></div>
+                    <div class="stat-card green"><div class="label">Snittfl&#246;de</div><div class="value" id="statAvg" style="color:#4ade80;">--</div><div class="unit">L/min</div></div>
+                    <div class="stat-card yellow"><div class="label">Prover totalt</div><div class="value" id="statSamples" style="color:#fde047;">--</div><div class="unit">m&#228;tningar</div></div>
+                    <div class="stat-card purple"><div class="label">Max fl&#246;de</div><div class="value" id="statMax" style="color:#c084fc;">--</div><div class="unit">L/min</div></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h2>Realtidsfl&#246;de (L/min)</h2></div>
+                    <canvas id="flowChart" height="120"></canvas>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h2>Senaste M&#228;tarst&#228;llningar</h2></div>
+                    <div id="meterList" style="max-height:250px;overflow-y:auto;"></div>
+                </div>
             </div>
-        </div>
 
-        <!-- API-tabbar -->
-        <div class="mt-8">
-            <div class="flex gap-1">
-                <button class="tab-btn active" data-tab="apidocs">API</button>
-                <button class="tab-btn" data-tab="rawdata">Rådata</button>
+            <!-- OPC UA PAGE -->
+            <div id="page-opcua" class="page">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>OPC UA-anslutningar</h2>
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="showOpcuaTestPanel()">Testa anslutning</button>
+                            <button class="btn btn-success" onclick="showOpcuaForm()">+ Ny anslutning</button>
+                        </div>
+                    </div>
+                    <div id="opcuaList"></div>
+                </div>
             </div>
-            <div class="card" style="border-radius: 0 8px 8px 8px;">
-                <div id="tab-apidocs" class="tab-content active">
-                    <h3 class="text-lg font-semibold mb-3 text-blue-300">Tillgängliga API-endpoints</h3>
-                    <div class="space-y-2 text-sm font-mono">
-                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/data <span class="text-gray-500">— Kombinerad (flow + meters)</span></div>
-                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/flow?from=&to=&source=&limit= <span class="text-gray-500">— Flödesdata</span></div>
-                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/meters?type=hourly&source=&limit= <span class="text-gray-500">— Mätarställningar</span></div>
-                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/stats <span class="text-gray-500">— Statistik</span></div>
-                        <div class="p-2 bg-gray-800 rounded"><span class="text-green-400">GET</span> /api/health <span class="text-gray-500">— Systemhälsa</span></div>
+
+            <!-- MODBUS PAGE -->
+            <div id="page-modbus" class="page">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>Modbus TCP-anslutningar</h2>
+                        <div class="btn-group">
+                            <button class="btn btn-primary" onclick="showModbusTestPanel()">Testa l&#228;sning</button>
+                            <button class="btn btn-success" onclick="showModbusForm()">+ Ny anslutning</button>
+                        </div>
+                    </div>
+                    <div id="modbusList"></div>
+                </div>
+            </div>
+
+            <!-- HELP PAGE -->
+            <div id="page-help" class="page">
+                <div class="card">
+                    <h2 style="margin-bottom:20px;color:#60a5fa;">Hj&#228;lp & Begreppsf&#246;rklaring</h2>
+
+                    <div class="help-section">
+                        <h3>Vad &#228;r Modbus?</h3>
+                        <p>Modbus &#228;r ett kommunikationsprotokoll som anv&#228;nds i industriella system f&#246;r att l&#228;sa och skriva data fr&#229;n enheter som PLC:er, sensorer och m&#228;tare. Modbus TCP &#228;r varianten som k&#246;r &#246;ver n&#228;tverk (Ethernet).</p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Register-typer</h3>
+                        <table>
+                            <tr><th>Typ</th><th>Adressomr&#229;de</th><th>Beskrivning</th></tr>
+                            <tr><td><code>Coil</code></td><td>0xxxx</td><td>L&#228;s/skriv barri&#228;r - ON/OFF (1 bit)</td></tr>
+                            <tr><td><code>Discrete Input</code></td><td>1xxxx</td><td>Skrivskyddad barri&#228;r - ON/OFF (1 bit)</td></tr>
+                            <tr><td><code>Input Register</code></td><td>3xxxx</td><td>Skrivskyddat register (16 bitar)</td></tr>
+                            <tr><td><code>Holding Register</code></td><td>4xxxx</td><td>L&#228;s/skriv register (16 bitar) - vanligast!</td></tr>
+                        </table>
+                        <p><strong>Holding Register</strong> &#228;r den vanligaste typen f&#246;r att l&#228;sa analoga v&#228;rden som temperatur, fl&#246;de, tryck etc.</p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Datatyper</h3>
+                        <table>
+                            <tr><th>Typ</th><th>Storlek</th><th>Register</th><th>Beskrivning</th></tr>
+                            <tr><td><code>uint16</code></td><td>16 bit</td><td>1</td><td>Heltal 0 till 65535</td></tr>
+                            <tr><td><code>int16</code></td><td>16 bit</td><td>1</td><td>Heltal -32768 till 32767</td></tr>
+                            <tr><td><code>uint32</code></td><td>32 bit</td><td>2</td><td>Heltal 0 till 4294967295</td></tr>
+                            <tr><td><code>int32</code></td><td>32 bit</td><td>2</td><td>Heltal -2147483648 till 2147483647</td></tr>
+                            <tr><td><code>float32</code></td><td>32 bit</td><td>2</td><td>Flyttal med decimaler (vanligast f&#246;r sensorer!)</td></tr>
+                            <tr><td><code>float64</code></td><td>64 bit</td><td>4</td><td>Flyttal med h&#246;g precision</td></tr>
+                        </table>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Byte Order (Endianness) - Vilken &#228;r vilken?</h3>
+                        <p>Datorer kan lagra bytes i olika ordning. T&#228;nk dig att du har siffran <code>1000</code> (hex: <code>0x03E8</code>).</p>
+                        <p>I minnet lagras detta i 2 bytes. Ordningen beror p&#229; systemet:</p>
+
+                        <table>
+                            <tr><th>Inst&#228;llning</th><th>Byte-ordning</th><th>Exempel</th><th>Anv&#228;nds av</th></tr>
+                            <tr><td><code>Big Endian</code></td><td>MSB f&#246;rst</td><td>03 E8</td><td>De flesta PLC:er, Modbus-standarden</td></tr>
+                            <tr><td><code>Little Endian</code></td><td>LSB f&#246;rst</td><td>E8 03</td><td>Intel/AMD-processorer, vissa PLC:er</td></tr>
+                            <tr><td><code>Big Endian Swap</code></td><td>MSB f&#246;rst, byt plats</td><td>E8 03</td><td>Vissa &#228;ldre system</td></tr>
+                            <tr><td><code>Little Endian Swap</code></td><td>LSB f&#246;rst, byt plats</td><td>03 E8</td><td>S&#228;llsynt</td></tr>
+                        </table>
+
+                        <p><strong>Tips:</strong> Om du f&#229;r konstiga v&#228;rden, prova att byta byte order! Vanligast &#228;r <code>Big Endian</code>.</p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Word Order</h3>
+                        <p>F&#246;r 32-bitars v&#228;rden (float32, int32, uint32) beh&#246;vs 2 register (words). Ordningen dessa tv&#229; register kommer i kan variera:</p>
+                        <table>
+                            <tr><th>Inst&#228;llning</th><th>Beskrivning</th></tr>
+                            <tr><td><code>Big</code></td><td>H&#246;g word f&#246;rst (vanligast)</td></tr>
+                            <tr><td><code>Little</code></td><td>L&#229;g word f&#246;rst</td></tr>
+                        </table>
+                        <p>Exempel: V&#228;rdet <code>1234.5</code> som float32 = register <code>[0x44 0x9A 0x48 0x00]</code></p>
+                        <p>Big Word Order: Register 1 = <code>0x449A</code>, Register 2 = <code>0x4800</code></p>
+                        <p>Little Word Order: Register 1 = <code>0x4800</code>, Register 2 = <code>0x449A</code></p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Scaling Factor & Offset</h3>
+                        <p>Anv&#228;nds f&#246;r att omvandla r&#229;v&#228;rdet till verkligt v&#228;rde:</p>
+                        <p><strong>Slutv&#228;rde = (R&#229;v&#228;rde &#215; Scaling Factor) + Offset</strong></p>
+                        <p>Exempel: R&#229;v&#228;rde = <code>452</code>, Scaling = <code>0.1</code>, Offset = <code>0</code> &#8594; Resultat = <code>45.2</code> L/min</p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Vad &#228;r OPC UA?</h3>
+                        <p>OPC UA (Open Platform Communications Unified Architecture) &#228;r ett modernt industriellt kommunikationsprotokoll. J&#228;mf&#246;rt med Modbus:</p>
+                        <table>
+                            <tr><th></th><th>Modbus TCP</th><th>OPC UA</th></tr>
+                            <tr><td>Enkelhet</td><td>Enkelt, v&#228;letablerat</td><td>Mer komplext, modernare</td></tr>
+                            <tr><td>S&#228;kerhet</td><td>Ingen inbyggd</td><td>Kryptering & autentisering</td></tr>
+                            <tr><td>Data-identifiering</td><td>Register-adress (nummer)</td><td>NodeId (t.ex. ns=1;s=Sensor1)</td></tr>
+                            <tr><td>Datauppt&#228;ckt</td><td>Manuell (du m&#229;ste veta adressen)</td><td>Kan bl&#228;ddra i serverns nod-tr&#228;d</td></tr>
+                        </table>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>OPC UA NodeId</h3>
+                        <p>En NodeId identifierar en specifik datapunkt i en OPC UA-server. Format:</p>
+                        <p><code>ns=&lt;namnrymd&gt;;s=&lt;str&#228;ngnamn&gt;</code> eller <code>ns=&lt;namnrymd&gt;;i=&lt;heltal&gt;</code></p>
+                        <p>Exempel: <code>ns=1;s=FlowSensor01</code> = Namnrymd 1, str&#228;ngidentifierare "FlowSensor01"</p>
+                    </div>
+
+                    <div class="help-section">
+                        <h3>Vanliga problem & l&#246;sningar</h3>
+                        <p><strong>"F&#229;r konstiga v&#228;rden"</strong> &#8594; Kontrollera byte order och word order. Prova Big Endian f&#246;rst.</p>
+                        <p><strong>"Kan inte ansluta"</strong> &#8594; Kontrollera IP-adress, port, och att brandv&#228;gg till&#229;ter trafik. Modbus = port 502, OPC UA = port 4840.</p>
+                        <p><strong>"Timeout"</strong> &#8594; Enheten svarar inte. Kontrollera att den &#228;r p&#229;slagen och n&#228;tverkskabeln &#228;r ansluten.</p>
+                        <p><strong>"V&#228;rdet &#228;r alltid 0"</strong> &#8594; Kontrollera register-adress och register-typ. M&#229;nga system b&#246;rjar r&#228;kna fr&#229;n 0 eller 1 beroende p&#229; konvention.</p>
                     </div>
                 </div>
-                <div id="tab-rawdata" class="tab-content">
-                    <pre id="rawJson" class="text-xs overflow-auto max-h-96 text-green-300 bg-gray-900 p-4 rounded"></pre>
+            </div>
+
+            <!-- SETTINGS PAGE -->
+            <div id="page-settings" class="page">
+                <div class="card">
+                    <div class="card-header"><h2>Systemstatus</h2></div>
+                    <div id="systemStatus"></div>
+                </div>
+                <div class="card">
+                    <div class="card-header"><h2>&#196;ndra l&#246;senord</h2></div>
+                    <div class="form-group"><label>Nuvarande l&#246;senord</label><input type="password" id="currentPw"></div>
+                    <div class="form-group"><label>Nytt l&#246;senord</label><input type="password" id="newPw"></div>
+                    <div class="form-group"><label>Bekr&#228;fta nytt l&#246;senord</label><input type="password" id="confirmPw"></div>
+                    <button class="btn btn-primary" onclick="changePassword()">&#196;ndra l&#246;senord</button>
+                    <div id="pwResult" style="margin-top:8px;font-size:13px;"></div>
                 </div>
             </div>
-        </div>
+        </main>
+    </div>
+
+    <!-- MODAL -->
+    <div id="modalOverlay" class="modal-overlay">
+        <div class="modal" id="modalContent"></div>
     </div>
 
     <script>
+        let isAdmin = false;
+        let authChecked = false;
+
+        // ── Navigation ──
+        document.querySelectorAll('.sidebar-nav a').forEach(a => {
+            a.addEventListener('click', () => {
+                document.querySelectorAll('.sidebar-nav a').forEach(x => x.classList.remove('active'));
+                a.classList.add('active');
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.getElementById('page-' + a.dataset.page).classList.add('active');
+                if (a.dataset.page === 'opcua') loadConnections('opcua');
+                if (a.dataset.page === 'modbus') loadConnections('modbus');
+                if (a.dataset.page === 'settings') loadSystemStatus();
+            });
+        });
+
+        // ── Auth ──
+        async function checkAuth() {
+            try {
+                const res = await fetch('/api/auth/session');
+                const data = await res.json();
+                isAdmin = data.authenticated;
+                updateAuthUI();
+            } catch { isAdmin = false; updateAuthUI(); }
+            authChecked = true;
+        }
+
+        function updateAuthUI() {
+            const loginBtn = document.getElementById('loginBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const userDisp = document.getElementById('userDisplay');
+            if (isAdmin) {
+                loginBtn.style.display = 'none';
+                logoutBtn.style.display = 'block';
+            } else {
+                loginBtn.style.display = 'block';
+                logoutBtn.style.display = 'none';
+                userDisp.textContent = 'Inte inloggad';
+            }
+        }
+
+        document.getElementById('loginBtn').onclick = () => document.getElementById('loginOverlay').classList.add('show');
+        document.getElementById('logoutBtn').onclick = async () => { await fetch('/api/auth/logout', {method:'POST'}); isAdmin = false; updateAuthUI(); };
+        document.getElementById('loginOverlay').onclick = (e) => { if (e.target.classList.contains('login-overlay')) e.target.classList.remove('show'); };
+
+        async function doLogin() {
+            const u = document.getElementById('loginUser').value;
+            const p = document.getElementById('loginPass').value;
+            const errEl = document.getElementById('loginError');
+            errEl.textContent = '';
+            try {
+                const res = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                if (data.success) {
+                    isAdmin = true;
+                    updateAuthUI();
+                    document.getElementById('loginOverlay').classList.remove('show');
+                    document.getElementById('userDisplay').textContent = 'Inloggad: ' + data.username;
+                } else {
+                    errEl.textContent = data.error || 'Inloggningsfel';
+                }
+            } catch (e) { errEl.textContent = 'Nätverksfel'; }
+        }
+
+        document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+        async function changePassword() {
+            const cur = document.getElementById('currentPw').value;
+            const nw = document.getElementById('newPw').value;
+            const conf = document.getElementById('confirmPw').value;
+            const el = document.getElementById('pwResult');
+            if (nw !== conf) { el.style.color='#f87171'; el.textContent='Lösenorden matchar inte'; return; }
+            try {
+                const res = await fetch('/api/auth/change-password', {
+                    method:'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({currentPassword: cur, newPassword: nw})
+                });
+                const data = await res.json();
+                if (data.success) { el.style.color='#4ade80'; el.textContent='Lösenord ändrat!'; }
+                else { el.style.color='#f87171'; el.textContent=data.error; }
+            } catch { el.style.color='#f87171'; el.textContent='Nätverksfel'; }
+        }
+
+        function getAuthHeaders() {
+            return {'Content-Type':'application/json'};
+        }
+
+        // ── Dashboard ──
         const ctx = document.getElementById('flowChart').getContext('2d');
         const flowChart = new Chart(ctx, {
             type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Flödeshastighet',
-                    data: [],
-                    borderColor: '#63b3ed',
-                    backgroundColor: 'rgba(99, 179, 237, 0.2)',
-                    fill: true,
-                    tension: 0.4,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                animation: false,
-                scales: {
-                    y: { beginAtZero: true, grid: { color: '#4a5568' } },
-                    x: { grid: { display: false }, ticks: { maxTicksLimit: 10 } }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-                btn.classList.add('active');
-                document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
-            });
+            data: { labels: [], datasets: [{ label: 'Flöde', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.15)', fill: true, tension: .4, pointRadius: 0 }] },
+            options: { responsive: true, animation: false, scales: { y: { beginAtZero: true, grid: {color:'#1e293b'} }, x: { grid: {display:false}, ticks: {maxTicksLimit:10} } }, plugins: { legend: {display:false} } }
         });
 
         async function updateDashboard() {
             try {
-                const [dataRes, statsRes] = await Promise.all([
-                    fetch('/api/data'),
-                    fetch('/api/stats')
-                ]);
+                const [dataRes, statsRes] = await Promise.all([fetch('/api/data'), fetch('/api/stats')]);
                 const data = await dataRes.json();
                 const stats = await statsRes.json();
-
                 flowChart.data.labels = data.flow.map(f => new Date(f.timestamp).toLocaleTimeString());
                 flowChart.data.datasets[0].data = data.flow.map(f => f.flow_rate);
                 flowChart.update('none');
-
                 document.getElementById('statLatest').textContent = stats.latestFlow ? stats.latestFlow.toFixed(1) : '--';
                 document.getElementById('statAvg').textContent = stats.avgFlow || '--';
                 document.getElementById('statSamples').textContent = stats.totalSamples || '--';
                 document.getElementById('statMax').textContent = stats.maxFlow || '--';
-
-                const list = document.getElementById('meterList');
-                list.innerHTML = data.meters.map(m => {
-                    const badgeClass = 'badge badge-' + m.interval_type;
-                    return '<div class="flex justify-between items-center border-b border-gray-600 pb-1">' +
-                        '<div><span class="' + badgeClass + '">' + m.interval_type + '</span> <span class="text-gray-400 ml-2">' + new Date(m.timestamp).toLocaleString() + '</span></div>' +
-                        '<span class="font-mono text-blue-300">' + m.reading_value + ' m³</span>' +
-                    '</div>';
+                document.getElementById('meterList').innerHTML = data.meters.map(m => {
+                    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #334155;">' +
+                        '<div><span class="badge badge-blue">' + m.interval_type + '</span> <span style="color:#64748b;margin-left:8px;">' + new Date(m.timestamp).toLocaleString() + '</span></div>' +
+                        '<span style="font-family:monospace;color:#60a5fa;">' + m.reading_value + ' m\u00B3</span></div>';
                 }).join('');
-
-                document.getElementById('rawJson').textContent = JSON.stringify(data, null, 2);
-            } catch (e) {
-                console.error('Dashboard uppdateringsfel:', e);
-                document.getElementById('statusBadge').textContent = 'Fel';
-                document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-red-900 text-red-300 border border-red-500 text-sm';
-            }
+            } catch {}
         }
 
         async function checkHealth() {
             try {
                 const res = await fetch('/api/health');
-                const health = await res.json();
-                const mode = document.getElementById('modeBadge');
-                mode.textContent = health.mode.toUpperCase();
-                if (health.status === 'ok') {
-                    document.getElementById('statusBadge').textContent = 'System Aktivt';
-                    document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-green-900 text-green-300 border border-green-500 text-sm';
-                } else {
-                    document.getElementById('statusBadge').textContent = 'Degraded';
-                    document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-yellow-900 text-yellow-300 border border-yellow-500 text-sm';
-                }
+                const h = await res.json();
+                const el = document.getElementById('statusIndicator');
+                const dotClass = h.status === 'ok' ? 'connected' : 'error';
+                const label = h.status === 'ok' ? 'System Aktivt' : 'Degraded';
+                el.innerHTML = '<span class="status-dot ' + dotClass + '"></span><span style="color:#94a3b8;font-size:12px;">' + label + ' (' + h.mode + ')</span>';
             } catch {
-                document.getElementById('statusBadge').textContent = 'Nerkopplad';
-                document.getElementById('statusBadge').className = 'px-4 py-2 rounded bg-red-900 text-red-300 border border-red-500 text-sm';
+                document.getElementById('statusIndicator').innerHTML = '<span class="status-dot error"></span><span style="color:#94a3b8;font-size:12px;">Nerkopplad</span>';
             }
         }
 
-        setInterval(updateDashboard, 1000);
+        setInterval(updateDashboard, 2000);
         setInterval(checkHealth, 10000);
         updateDashboard();
         checkHealth();
+
+        // ── Connections (shared) ──
+        async function loadConnections(type) {
+            const el = document.getElementById(type + 'List');
+            el.innerHTML = '<div class="empty-state">Laddar...</div>';
+            try {
+                const res = await fetch('/api/admin/connections', {headers: getAuthHeaders()});
+                if (res.status === 401) { el.innerHTML = '<div class="empty-state">Logga in f&#246;r att hantera anslutningar</div>'; return; }
+                const conns = await res.json();
+                const filtered = conns.filter(c => c.type === type);
+                if (!filtered.length) { el.innerHTML = '<div class="empty-state"><div class="icon">&#128279;</div>Inga ' + type.toUpperCase() + ' anslutningar. Klicka "+ Ny anslutning" f&#246;r att b&#246;rja.</div>'; return; }
+                el.innerHTML = filtered.map(c => renderConnection(c)).join('');
+            } catch { el.innerHTML = '<div class="empty-state">Kunde inte h&#228;mta anslutningar</div>'; }
+        }
+
+        function statusBadge(status) {
+            const map = { connected: 'green', error: 'red', connecting: 'yellow', stopped: 'gray' };
+            return '<span class="badge badge-' + (map[status]||'gray') + '">' + status + '</span>';
+        }
+
+        function statusDot(status) {
+            return '<span class="status-dot ' + (status||'stopped') + '"></span>';
+        }
+
+        function renderConnection(c) {
+            const tagsHtml = (c.tags || []).map(t => renderTag(c, t)).join('');
+            return '<div class="conn-item" id="conn-' + c.id + '">' +
+                '<div class="conn-header" onclick="toggleConn(' + c.id + ')">' +
+                    statusDot(c.status) +
+                    '<span class="conn-name">' + esc(c.name) + '</span>' +
+                    statusBadge(c.status) +
+                    '<div class="btn-group" onclick="event.stopPropagation()">' +
+                        (c.active ? '<button class="btn btn-sm btn-danger" onclick="stopConn(' + c.id + ')">Stoppa</button>' : '<button class="btn btn-sm btn-success" onclick="startConn(' + c.id + ')">Starta</button>') +
+                        '<button class="btn btn-sm btn-outline" onclick="testConn(' + c.id + ')">Testa</button>' +
+                        '<button class="btn btn-sm btn-outline" onclick="editConn(' + c.id + ')">Redigera</button>' +
+                        '<button class="btn btn-sm btn-danger" onclick="deleteConn(' + c.id + ')">Ta bort</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="conn-body" id="conn-body-' + c.id + '">' +
+                    '<div style="margin-bottom:12px;"><strong>Taggar / Register:</strong> ' +
+                    '<button class="btn btn-sm btn-primary" onclick="showTagForm(' + c.id + ',\'' + c.type + '\')">+ L&#228;gg till</button>' +
+                    '<button class="btn btn-sm btn-outline" style="margin-left:4px;" onclick="testReadAll(' + c.id + ')">Testa alla</button></div>' +
+                    (tagsHtml || '<div style="color:#64748b;padding:8px;">Inga taggar tillagda</div>') +
+                    '<div id="test-result-' + c.id + '"></div>' +
+                '</div>' +
+            '</div>';
+        }
+
+        function renderTag(conn, tag) {
+            const cfg = tag.config || {};
+            const addrInfo = conn.type === 'modbus'
+                ? (cfg.registerType || 'holding') + ' @ ' + (cfg.address || '?') + (cfg.dataType ? ' (' + cfg.dataType + ')' : '')
+                : (cfg.nodeId || '?');
+            const lastVal = tag.last_value !== null ? tag.last_value : '--';
+            return '<div class="tag-row">' +
+                statusDot(tag.error_message ? 'error' : 'connected') +
+                '<div><strong>' + esc(tag.name) + '</strong><br><span style="color:#64748b;font-size:12px;">' + esc(addrInfo) + '</span></div>' +
+                '<span style="font-family:monospace;color:#60a5fa;">' + lastVal + '</span>' +
+                '<button class="btn btn-sm btn-outline" onclick="testTag(' + tag.id + ')">Test</button>' +
+                '<button class="btn btn-sm btn-outline" onclick="editTag(' + tag.id + ',' + conn.id + ',\'' + conn.type + '\')">Redigera</button>' +
+                '<button class="btn btn-sm btn-danger" onclick="deleteTag(' + tag.id + ',' + conn.id + ',\'' + conn.type + '\')">X</button>' +
+            '</div>';
+        }
+
+        function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        function toggleConn(id) {
+            const body = document.getElementById('conn-body-' + id);
+            body.classList.toggle('open');
+        }
+
+        // ── Connection Actions ──
+        async function startConn(id) {
+            const res = await fetch('/api/admin/connections/' + id + '/start', {method:'POST', headers:getAuthHeaders()});
+            const data = await res.json();
+            if (!data.success) alert('Kunde inte starta: ' + data.error);
+            loadConnections(document.querySelector('.sidebar-nav a.active').dataset.page);
+        }
+        async function stopConn(id) {
+            await fetch('/api/admin/connections/' + id + '/stop', {method:'POST', headers:getAuthHeaders()});
+            loadConnections(document.querySelector('.sidebar-nav a.active').dataset.page);
+        }
+        async function testConn(id) {
+            const el = document.getElementById('test-result-' + id) || document.getElementById('modalContent');
+            el.innerHTML = '<div class="test-result">Testar anslutningen...</div>';
+            const res = await fetch('/api/admin/connections/' + id + '/test', {method:'POST', headers:getAuthHeaders()});
+            const data = await res.json();
+            if (data.success) {
+                el.innerHTML = '<div class="test-result" style="border-color:#22c55e;">&#10004; Anslutning OK\n' + esc(data.message) + '</div>';
+            } else {
+                el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">&#10008; Fel: ' + esc(data.error) + '</div>';
+            }
+            setTimeout(() => { if (el.id) el.innerHTML = ''; }, 8000);
+        }
+        async function deleteConn(id) {
+            if (!confirm('Ta bort denna anslutning och alla taggar?')) return;
+            await fetch('/api/admin/connections/' + id, {method:'DELETE', headers:getAuthHeaders()});
+            loadConnections(document.querySelector('.sidebar-nav a.active').dataset.page);
+        }
+        function editConn(id) {
+            const type = document.querySelector('.sidebar-nav a.active').dataset.page;
+            if (type === 'opcua') showOpcuaForm(id);
+            else showModbusForm(id);
+        }
+
+        // ── Tag Actions ──
+        async function testTag(tagId) {
+            const res = await fetch('/api/admin/tags/' + tagId + '/test', {method:'POST', headers:getAuthHeaders()});
+            const data = await res.json();
+            showModal('<h3>Testresultat</h3><div class="test-result">' + esc(JSON.stringify(data, null, 2)) + '</div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>');
+        }
+        async function deleteTag(tagId, connId, type) {
+            if (!confirm('Ta bort denna tagg?')) return;
+            await fetch('/api/admin/tags/' + tagId, {method:'DELETE', headers:getAuthHeaders()});
+            loadConnections(type);
+        }
+        function editTag(tagId, connId, type) { showTagForm(connId, type, tagId); }
+        async function testReadAll(connId) {
+            showModal('<h3>Testar alla taggar...</h3><div class="test-result">V&#228;nta...</div>');
+            const res = await fetch('/api/admin/connections/' + connId + '/test-read', {method:'POST', headers:getAuthHeaders()});
+            const data = await res.json();
+            const html = data.success
+                ? data.results.map(r => (r.success ? '&#10004;' : '&#10008;') + ' ' + (r.name||r.nodeId||r.address) + ': ' + (r.value !== undefined ? r.value : r.error)).join('\n')
+                : 'Fel: ' + data.error;
+            document.getElementById('modalContent').innerHTML = '<h3>Testresultat</h3><div class="test-result">' + html + '</div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>';
+        }
+
+        // ── Modal ──
+        function showModal(html) {
+            document.getElementById('modalContent').innerHTML = html;
+            document.getElementById('modalOverlay').classList.add('show');
+        }
+        function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); }
+        document.getElementById('modalOverlay').onclick = e => { if (e.target === e.currentTarget) closeModal(); };
+
+        // ── OPC UA Forms ──
+        async function showOpcuaForm(editId) {
+            let conn = null, tags = [];
+            if (editId) {
+                const res = await fetch('/api/admin/connections/' + editId, {headers:getAuthHeaders()});
+                conn = await res.json();
+                tags = conn.tags || [];
+            }
+            const cfg = conn ? conn.config : {};
+            showModal(
+                '<h3>' + (editId ? 'Redigera' : 'Ny') + ' OPC UA-anslutning</h3>' +
+                '<div class="form-group"><label>Namn</label><input id="f-name" value="' + esc(conn ? conn.name : '') + '"></div>' +
+                '<div class="form-group"><label>URL</label><input id="f-url" value="' + esc(cfg.url || 'opc.tcp://') + '" placeholder="opc.tcp://192.168.1.100:4840"></div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>S&#228;kerhetsl&#228;ge</label><select id="f-securityMode">' +
+                        '<option value="None"' + (cfg.securityMode==='None'?' selected':'') + '>None</option>' +
+                        '<option value="Sign"' + (cfg.securityMode==='Sign'?' selected':'') + '>Sign</option>' +
+                        '<option value="SignAndEncrypt"' + (cfg.securityMode==='SignAndEncrypt'?' selected':'') + '>Sign & Encrypt</option>' +
+                    '</select></div>' +
+                    '<div class="form-group"><label>S&#228;kerhetspolicy</label><select id="f-securityPolicy">' +
+                        '<option value="None"' + (cfg.securityPolicy==='None'?' selected':'') + '>None</option>' +
+                        '<option value="Basic128Rsa15"' + (cfg.securityPolicy==='Basic128Rsa15'?' selected':'') + '>Basic128Rsa15</option>' +
+                        '<option value="Basic256"' + (cfg.securityPolicy==='Basic256'?' selected':'') + '>Basic256</option>' +
+                        '<option value="Basic256Sha256"' + (cfg.securityPolicy==='Basic256Sha256'?' selected':'') + '>Basic256Sha256</option>' +
+                    '</select></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Anv&#228;ndarnamn (frivilligt)</label><input id="f-username" value="' + esc(cfg.username || '') + '"></div>' +
+                    '<div class="form-group"><label>L&#246;senord (frivilligt)</label><input type="password" id="f-password" value="' + esc(cfg.password || '') + '"></div>' +
+                '</div>' +
+                '<div class="form-group"><label><input type="checkbox" id="f-enabled" ' + (!conn || conn.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
+                '<div class="modal-actions">' +
+                    '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                    '<button class="btn btn-primary" onclick="saveOpcuaConn(' + (editId||'null') + ')">Spara</button>' +
+                '</div>'
+            );
+        }
+
+        async function saveOpcuaConn(editId) {
+            const body = {
+                name: document.getElementById('f-name').value,
+                type: 'opcua',
+                enabled: document.getElementById('f-enabled').checked,
+                config: {
+                    url: document.getElementById('f-url').value,
+                    securityMode: document.getElementById('f-securityMode').value,
+                    securityPolicy: document.getElementById('f-securityPolicy').value,
+                    username: document.getElementById('f-username').value || null,
+                    password: document.getElementById('f-password').value || null
+                }
+            };
+            const url = editId ? '/api/admin/connections/' + editId : '/api/admin/connections';
+            const method = editId ? 'PUT' : 'POST';
+            const res = await fetch(url, {method, headers: getAuthHeaders(), body: JSON.stringify(body)});
+            if (res.ok) { closeModal(); loadConnections('opcua'); }
+            else { const d = await res.json(); alert(d.error); }
+        }
+
+        // ── Modbus Forms ──
+        async function showModbusForm(editId) {
+            let conn = null;
+            if (editId) {
+                const res = await fetch('/api/admin/connections/' + editId, {headers:getAuthHeaders()});
+                conn = await res.json();
+            }
+            const cfg = conn ? conn.config : {};
+            showModal(
+                '<h3>' + (editId ? 'Redigera' : 'Ny') + ' Modbus TCP-anslutning</h3>' +
+                '<div class="form-group"><label>Namn</label><input id="f-name" value="' + esc(conn ? conn.name : '') + '"></div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Host / IP-adress</label><input id="f-host" value="' + esc(cfg.host || '192.168.1.50') + '"></div>' +
+                    '<div class="form-group"><label>Port</label><input type="number" id="f-port" value="' + (cfg.port || 502) + '"></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Unit ID (Slave ID)</label><input type="number" id="f-unitId" value="' + (cfg.unitId || 1) + '" min="1" max="247"></div>' +
+                    '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="f-timeout" value="' + (cfg.timeout || 5000) + '"></div>' +
+                '</div>' +
+                '<div class="form-group"><label><input type="checkbox" id="f-enabled" ' + (!conn || conn.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
+                '<div class="modal-actions">' +
+                    '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                    '<button class="btn btn-primary" onclick="saveModbusConn(' + (editId||'null') + ')">Spara</button>' +
+                '</div>'
+            );
+        }
+
+        async function saveModbusConn(editId) {
+            const body = {
+                name: document.getElementById('f-name').value,
+                type: 'modbus',
+                enabled: document.getElementById('f-enabled').checked,
+                config: {
+                    host: document.getElementById('f-host').value,
+                    port: parseInt(document.getElementById('f-port').value) || 502,
+                    unitId: parseInt(document.getElementById('f-unitId').value) || 1,
+                    timeout: parseInt(document.getElementById('f-timeout').value) || 5000
+                }
+            };
+            const url = editId ? '/api/admin/connections/' + editId : '/api/admin/connections';
+            const method = editId ? 'PUT' : 'POST';
+            const res = await fetch(url, {method, headers: getAuthHeaders(), body: JSON.stringify(body)});
+            if (res.ok) { closeModal(); loadConnections('modbus'); }
+            else { const d = await res.json(); alert(d.error); }
+        }
+
+        // ── Tag Form ──
+        async function showTagForm(connId, connType, editId) {
+            let tag = null;
+            if (editId) {
+                const res = await fetch('/api/admin/tags/' + editId, {headers:getAuthHeaders()});
+                tag = await res.json();
+            }
+            const cfg = tag ? (typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config) : {};
+
+            if (connType === 'modbus') {
+                showModal(
+                    '<h3>' + (editId ? 'Redigera' : 'Ny') + ' Modbus-register</h3>' +
+                    '<div class="form-group"><label>Namn</label><input id="t-name" value="' + esc(tag ? tag.name : '') + '" placeholder="T.ex. Fl&#246;dessensor 1"></div>' +
+                    '<div class="form-row-3">' +
+                        '<div class="form-group"><label>Register-typ</label><select id="t-registerType">' +
+                            '<option value="holding"' + (cfg.registerType==='holding'||!cfg.registerType?' selected':'') + '>Holding (4xxxx)</option>' +
+                            '<option value="input"' + (cfg.registerType==='input'?' selected':'') + '>Input (3xxxx)</option>' +
+                            '<option value="coil"' + (cfg.registerType==='coil'?' selected':'') + '>Coil (0xxxx)</option>' +
+                            '<option value="discrete"' + (cfg.registerType==='discrete'?' selected':'') + '>Discrete (1xxxx)</option>' +
+                        '</select></div>' +
+                        '<div class="form-group"><label>Adress</label><input type="number" id="t-address" value="' + (cfg.address || 0) + '"></div>' +
+                        '<div class="form-group"><label>Antal register</label><input type="number" id="t-quantity" value="' + (cfg.quantity || 2) + '" min="1"></div>' +
+                    '</div>' +
+                    '<div class="form-row-3">' +
+                        '<div class="form-group"><label>Datatyp</label><select id="t-dataType">' +
+                            '<option value="uint16"' + (cfg.dataType==='uint16'?' selected':'') + '>uint16 (1 reg)</option>' +
+                            '<option value="int16"' + (cfg.dataType==='int16'?' selected':'') + '>int16 (1 reg)</option>' +
+                            '<option value="uint32"' + (cfg.dataType==='uint32'?' selected':'') + '>uint32 (2 reg)</option>' +
+                            '<option value="int32"' + (cfg.dataType==='int32'?' selected':'') + '>int32 (2 reg)</option>' +
+                            '<option value="float32"' + (cfg.dataType==='float32'||!cfg.dataType?' selected':'') + '>float32 (2 reg)</option>' +
+                            '<option value="float64"' + (cfg.dataType==='float64'?' selected':'') + '>float64 (4 reg)</option>' +
+                        '</select></div>' +
+                        '<div class="form-group"><label>Byte Order</label><select id="t-byteOrder">' +
+                            '<option value="big"' + (cfg.byteOrder==='big'||!cfg.byteOrder?' selected':'') + '>Big Endian</option>' +
+                            '<option value="little"' + (cfg.byteOrder==='little'?' selected':'') + '>Little Endian</option>' +
+                            '<option value="bigSwap"' + (cfg.byteOrder==='bigSwap'?' selected':'') + '>Big Endian Swap</option>' +
+                            '<option value="littleSwap"' + (cfg.byteOrder==='littleSwap'?' selected':'') + '>Little Endian Swap</option>' +
+                        '</select></div>' +
+                        '<div class="form-group"><label>Word Order</label><select id="t-wordOrder">' +
+                            '<option value="big"' + (cfg.wordOrder==='big'||!cfg.wordOrder?' selected':'') + '>Big (h&#246;ga f&#246;rst)</option>' +
+                            '<option value="little"' + (cfg.wordOrder==='little'?' selected':'') + '>Little (l&#229;ga f&#246;rst)</option>' +
+                        '</select></div>' +
+                    '</div>' +
+                    '<div class="form-row-3">' +
+                        '<div class="form-group"><label>Scaling Factor</label><input type="number" step="0.01" id="t-scaling" value="' + (cfg.scalingFactor || 1) + '"></div>' +
+                        '<div class="form-group"><label>Offset</label><input type="number" step="0.01" id="t-offset" value="' + (cfg.offset || 0) + '"></div>' +
+                        '<div class="form-group"><label>Poll-intervall (ms)</label><input type="number" id="t-pollInterval" value="' + (cfg.pollInterval || 1000) + '"></div>' +
+                    '</div>' +
+                    '<div class="form-row">' +
+                        '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min, &#176;C, bar"></div>' +
+                        '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
+                    '</div>' +
+                    '<div class="modal-actions">' +
+                        '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                        '<button class="btn btn-primary" onclick="saveTag(' + connId + ',\'' + connType + '\',' + (editId||'null') + ')">Spara</button>' +
+                    '</div>'
+                );
+            } else {
+                showModal(
+                    '<h3>' + (editId ? 'Redigera' : 'Ny') + ' OPC UA-tagg</h3>' +
+                    '<div class="form-group"><label>Namn</label><input id="t-name" value="' + esc(tag ? tag.name : '') + '" placeholder="T.ex. Fl&#246;dessensor 1"></div>' +
+                    '<div class="form-group"><label>NodeId</label><input id="t-nodeId" value="' + esc(cfg.nodeId || '') + '" placeholder="T.ex. ns=1;s=FlowSensor01"></div>' +
+                    '<div class="form-row">' +
+                        '<div class="form-group"><label>Samplingsintervall (ms)</label><input type="number" id="t-samplingInterval" value="' + (cfg.samplingInterval || 1000) + '"></div>' +
+                        '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min"></div>' +
+                    '</div>' +
+                    '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
+                    '<div class="modal-actions">' +
+                        '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                        '<button class="btn btn-primary" onclick="saveTag(' + connId + ',\'' + connType + '\',' + (editId||'null') + ')">Spara</button>' +
+                    '</div>'
+                );
+            }
+        }
+
+        async function saveTag(connId, connType, editId) {
+            let config;
+            if (connType === 'modbus') {
+                config = {
+                    registerType: document.getElementById('t-registerType').value,
+                    address: parseInt(document.getElementById('t-address').value) || 0,
+                    quantity: parseInt(document.getElementById('t-quantity').value) || 1,
+                    dataType: document.getElementById('t-dataType').value,
+                    byteOrder: document.getElementById('t-byteOrder').value,
+                    wordOrder: document.getElementById('t-wordOrder').value,
+                    scalingFactor: parseFloat(document.getElementById('t-scaling').value) || 1,
+                    offset: parseFloat(document.getElementById('t-offset').value) || 0,
+                    pollInterval: parseInt(document.getElementById('t-pollInterval').value) || 1000,
+                    unit: document.getElementById('t-unit').value
+                };
+            } else {
+                config = {
+                    nodeId: document.getElementById('t-nodeId').value,
+                    samplingInterval: parseInt(document.getElementById('t-samplingInterval').value) || 1000,
+                    unit: document.getElementById('t-unit').value
+                };
+            }
+            const body = { name: document.getElementById('t-name').value, enabled: document.getElementById('t-enabled').checked, config };
+            const url = editId ? '/api/admin/tags/' + editId : '/api/admin/connections/' + connId + '/tags';
+            const method = editId ? 'PUT' : 'POST';
+            const res = await fetch(url, {method, headers: getAuthHeaders(), body: JSON.stringify(body)});
+            if (res.ok) { closeModal(); loadConnections(connType); }
+            else { const d = await res.json(); alert(d.error); }
+        }
+
+        // ── Ad-hoc Test Panels ──
+        function showOpcuaTestPanel() {
+            showModal(
+                '<h3>Testa OPC UA-anslutning</h3>' +
+                '<div class="form-group"><label>URL</label><input id="t-url" value="opc.tcp://"></div>' +
+                '<div class="form-row"><div class="form-group"><label>S&#228;kerhetsl&#228;ge</label><select id="t-secMode"><option>None</option><option>Sign</option><option>SignAndEncrypt</option></select></div>' +
+                '<div class="form-group"><label>S&#228;kerhetspolicy</label><select id="t-secPolicy"><option>None</option><option>Basic256Sha256</option></select></div></div>' +
+                '<div class="form-row"><div class="form-group"><label>Anv&#228;ndarnamn</label><input id="t-user"></div><div class="form-group"><label>L&#246;senord</label><input type="password" id="t-pass"></div></div>' +
+                '<h4 style="margin:12px 0 8px;color:#94a3b8;">L&#228;s noder</h4>' +
+                '<div class="form-group"><label>NodeIds (en per rad)</label><textarea id="t-nodeIds" rows="4" placeholder="ns=1;s=Sensor1\nns=1;s=Sensor2"></textarea></div>' +
+                '<div class="btn-group"><button class="btn btn-primary" onclick="runOpcuaTest()">Testa l&#228;sning</button>' +
+                '<button class="btn btn-outline" onclick="runOpcuaBrowse()">Bl&#228;ddra noder</button></div>' +
+                '<div id="opcua-test-result" style="margin-top:12px;"></div>' +
+                '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>'
+            );
+        }
+
+        async function runOpcuaTest() {
+            const el = document.getElementById('opcua-test-result');
+            el.innerHTML = '<div class="test-result">L&#228;ser...</div>';
+            const nodeIds = document.getElementById('t-nodeIds').value.split('\n').map(s=>s.trim()).filter(Boolean);
+            if (!nodeIds.length) { el.innerHTML = '<div class="test-result" style="border-color:#eab308;">Ange minst en NodeId</div>'; return; }
+            try {
+                const res = await fetch('/api/admin/test/opcua-read', {
+                    method:'POST', headers:getAuthHeaders(),
+                    body: JSON.stringify({
+                        url: document.getElementById('t-url').value,
+                        securityMode: document.getElementById('t-secMode').value,
+                        securityPolicy: document.getElementById('t-secPolicy').value,
+                        username: document.getElementById('t-user').value || null,
+                        password: document.getElementById('t-pass').value || null,
+                        nodeIds
+                    })
+                });
+                const data = await res.json();
+                const text = data.success
+                    ? data.results.map(r => (r.success ? '&#10004;' : '&#10008;') + ' ' + r.nodeId + ': ' + (r.value !== undefined ? r.value : r.error)).join('\n')
+                    : 'Fel: ' + data.error;
+                el.innerHTML = '<div class="test-result">' + text + '</div>';
+            } catch (e) { el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">' + esc(e.message) + '</div>'; }
+        }
+
+        async function runOpcuaBrowse() {
+            const el = document.getElementById('opcua-test-result');
+            el.innerHTML = '<div class="test-result">Bl&#228;ddrar...</div>';
+            try {
+                const res = await fetch('/api/admin/test/opcua-browse', {
+                    method:'POST', headers:getAuthHeaders(),
+                    body: JSON.stringify({
+                        url: document.getElementById('t-url').value,
+                        securityMode: document.getElementById('t-secMode').value,
+                        securityPolicy: document.getElementById('t-secPolicy').value,
+                        username: document.getElementById('t-user').value || null,
+                        password: document.getElementById('t-pass').value || null,
+                        nodeId: document.getElementById('t-nodeIds').value.split('\n')[0].trim() || null
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const text = data.nodes.map(n => n.nodeId + '  (' + n.browseName + ')  [' + n.nodeClass + ']').join('\n');
+                    el.innerHTML = '<div class="test-result">Barnnoder under ' + data.nodeId + ':\n\n' + text + '</div>';
+                } else {
+                    el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">Fel: ' + esc(data.error) + '</div>';
+                }
+            } catch (e) { el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">' + esc(e.message) + '</div>'; }
+        }
+
+        function showModbusTestPanel() {
+            showModal(
+                '<h3>Testa Modbus-l&#228;sning</h3>' +
+                '<div class="form-row"><div class="form-group"><label>Host / IP</label><input id="t-host" value="192.168.1.50"></div>' +
+                '<div class="form-group"><label>Port</label><input type="number" id="t-port" value="502"></div></div>' +
+                '<div class="form-row"><div class="form-group"><label>Unit ID</label><input type="number" id="t-unitId" value="1"></div>' +
+                '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="t-timeout" value="5000"></div></div>' +
+                '<h4 style="margin:12px 0 8px;color:#94a3b8;">Register att l&#228;sa</h4>' +
+                '<div id="test-registers">' +
+                    renderTestRegisterRow(0) +
+                '</div>' +
+                '<button class="btn btn-sm btn-outline" onclick="addTestRegister()" style="margin:8px 0;">+ L&#228;gg till register</button>' +
+                '<button class="btn btn-primary" onclick="runModbusTest()">Testa l&#228;sning</button>' +
+                '<div id="modbus-test-result" style="margin-top:12px;"></div>' +
+                '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>'
+            );
+        }
+
+        let testRegCount = 1;
+        function renderTestRegisterRow(idx) {
+            return '<div class="test-reg-row" style="display:grid;grid-template-columns:80px 60px 80px 80px 80px 30px;gap:6px;margin-bottom:6px;align-items:center;">' +
+                '<input placeholder="Namn" data-field="name" class="test-reg-field">' +
+                '<input type="number" placeholder="Adress" data-field="address" value="0" class="test-reg-field">' +
+                '<select data-field="registerType" class="test-reg-field"><option value="holding">Holding</option><option value="input">Input</option></select>' +
+                '<select data-field="dataType" class="test-reg-field"><option value="uint16">uint16</option><option value="int16">int16</option><option value="float32" selected>float32</option><option value="int32">int32</option><option value="uint32">uint32</option></select>' +
+                '<select data-field="byteOrder" class="test-reg-field"><option value="big">Big Endian</option><option value="little">Little Endian</option></select>' +
+                '<button class="btn btn-sm btn-danger" onclick="this.parentElement.remove()" style="padding:4px 8px;">X</button>' +
+            '</div>';
+        }
+        function addTestRegister() {
+            const container = document.getElementById('test-registers');
+            const div = document.createElement('div');
+            div.innerHTML = renderTestRegisterRow(testRegCount++);
+            container.appendChild(div.firstElementChild);
+        }
+
+        async function runModbusTest() {
+            const el = document.getElementById('modbus-test-result');
+            el.innerHTML = '<div class="test-result">L&#228;ser...</div>';
+            const rows = document.querySelectorAll('.test-reg-row');
+            const registers = [];
+            rows.forEach(row => {
+                const fields = row.querySelectorAll('.test-reg-field');
+                const obj = {};
+                fields.forEach(f => { obj[f.dataset.field] = f.tagName === 'SELECT' ? f.value : (isNaN(f.value) ? f.value : Number(f.value)); });
+                if (obj.dataType === 'float32' || obj.dataType === 'int32' || obj.dataType === 'uint32') obj.quantity = 2;
+                else if (obj.dataType === 'float64') obj.quantity = 4;
+                else obj.quantity = 1;
+                registers.push(obj);
+            });
+            if (!registers.length) { el.innerHTML = '<div class="test-result" style="border-color:#eab308;">L&#228;gg till minst ett register</div>'; return; }
+            try {
+                const res = await fetch('/api/admin/test/modbus-read', {
+                    method:'POST', headers:getAuthHeaders(),
+                    body: JSON.stringify({
+                        host: document.getElementById('t-host').value,
+                        port: parseInt(document.getElementById('t-port').value) || 502,
+                        unitId: parseInt(document.getElementById('t-unitId').value) || 1,
+                        timeout: parseInt(document.getElementById('t-timeout').value) || 5000,
+                        registers
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    const text = data.results.map(r => (r.success ? '&#10004; ' + r.name + ' @ ' + r.address + ' = ' + r.value : '&#10008; ' + r.name + ' @ ' + r.address + ': ' + r.error)).join('\n');
+                    el.innerHTML = '<div class="test-result">' + text + '</div>';
+                } else {
+                    el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">Fel: ' + esc(data.error) + '</div>';
+                }
+            } catch (e) { el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">' + esc(e.message) + '</div>'; }
+        }
+
+        // ── Settings ──
+        async function loadSystemStatus() {
+            const el = document.getElementById('systemStatus');
+            el.innerHTML = 'Laddar...';
+            try {
+                const [healthRes, connsRes] = await Promise.all([fetch('/api/health'), fetch('/api/admin/connections', {headers:getAuthHeaders()})]);
+                const health = await healthRes.json();
+                let connHtml = '';
+                if (connsRes.ok) {
+                    const conns = await connsRes.json();
+                    if (conns.length) {
+                        connHtml = '<table style="margin-top:12px;"><tr><th>Namn</th><th>Typ</th><th>Status</th><th>Aktiv</th></tr>' +
+                            conns.map(c => '<tr><td>' + esc(c.name) + '</td><td>' + c.type.toUpperCase() + '</td><td>' + statusBadge(c.status) + '</td><td>' + (c.active ? '&#10004;' : '&#10008;') + '</td></tr>').join('') +
+                            '</table>';
+                    } else { connHtml = '<p style="color:#64748b;margin-top:8px;">Inga anslutningar konfigurerade</p>'; }
+                }
+                el.innerHTML =
+                    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">' +
+                        '<div class="stat-card"><div class="label">Databas</div><div class="value" style="font-size:16px;color:' + (health.database==='connected'?'#4ade80':'#f87171') + ';">' + health.database + '</div></div>' +
+                        '<div class="stat-card green"><div class="label">L&#228;ge</div><div class="value" style="font-size:16px;color:#60a5fa;">' + health.mode + '</div></div>' +
+                    '</div>' +
+                    '<h3 style="margin-top:16px;color:#94a3b8;">Anslutningar</h3>' + connHtml;
+            } catch { el.innerHTML = '<p style="color:#f87171;">Kunde inte ladda systemstatus</p>'; }
+        }
+
+        // ── Init ──
+        checkAuth();
     </script>
 </body>
 </html>
