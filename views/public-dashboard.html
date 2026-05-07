@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -108,6 +110,12 @@
         .chart-filter-chip.off { opacity: .4; text-decoration: line-through; }
         .chart-filter-chip.off .cf-dot { opacity: .3; }
 
+        .chart-toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+        .chart-btn { padding: 4px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; cursor: pointer; font-size: 11px; transition: all .15s; }
+        .chart-btn:hover { background: #334155; color: #e2e8f0; }
+        .chart-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+        .chart-toolbar-sep { width: 1px; height: 16px; background: #334155; }
+
         @media (max-width: 768px) {
             .kpi-row { grid-template-columns: 1fr 1fr; }
             .widget-grid { grid-template-columns: 1fr; }
@@ -158,6 +166,11 @@
                     <button class="trend-period-btn" data-minutes="10080" onclick="switchMainPeriod(10080, this)">7 dagar</button>
                 </div>
                 <div class="chart-filters" id="chartFilters"></div>
+                <div class="chart-toolbar">
+                    <button class="chart-btn" onclick="resetMainZoom()" title="\u00c5terst\u00e4ll zoom">&#8962;</button>
+                    <div class="chart-toolbar-sep"></div>
+                    <button class="chart-btn active" id="mainSmoothBtn" onclick="toggleMainSmooth(this)">Mjuk</button>
+                </div>
                 <canvas id="mainChart" height="140"></canvas>
             </div>
             <div class="map-card" id="mapCard">
@@ -177,6 +190,11 @@
                 <button class="trend-period-btn" data-minutes="1440" onclick="switchTrendPeriod(1440, this)">24 timmar</button>
                 <button class="trend-period-btn" data-minutes="10080" onclick="switchTrendPeriod(10080, this)">7 dagar</button>
             </div>
+            <div class="chart-toolbar" style="margin-bottom:12px;">
+                <button class="chart-btn" onclick="resetTrendZoom()" title="\u00c5terst\u00e4ll zoom">&#8962;</button>
+                <div class="chart-toolbar-sep"></div>
+                <button class="chart-btn active" id="trendSmoothBtn" onclick="toggleTrendSmooth(this)">Mjuk</button>
+            </div>
             <canvas id="trendChart" height="120"></canvas>
             <div class="trend-current" id="tmCurrent"></div>
             <div class="modal-actions" style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
@@ -194,6 +212,12 @@
         let sparkCharts = {};
         let mainChart = null;
         let historyCache = {};
+        let mainSmooth = true;
+
+        const zoomOpts = {
+            pan: { enabled: true, mode: 'xy' },
+            zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'xy' }
+        };
 
         const ctx = document.getElementById('mainChart').getContext('2d');
         mainChart = new Chart(ctx, {
@@ -201,8 +225,11 @@
             data: { labels: [], datasets: [] },
             options: {
                 responsive: true, animation: false,
-                scales: { y: { beginAtZero: true, grid: {color:'#1e293b'} }, x: { grid: {display:false}, ticks: {maxTicksLimit:12} } },
-                plugins: { legend: { labels: { color: '#94a3b8', usePointStyle: true, padding: 16 } } }
+                scales: { y: { grid: {color:'#1e293b'}, ticks: {color:'#94a3b8'} }, x: { grid: {display:false}, ticks: {maxTicksLimit:12} } },
+                plugins: {
+                    legend: { labels: { color: '#94a3b8', usePointStyle: true, padding: 16 } },
+                    zoom: zoomOpts
+                }
             }
         });
 
@@ -385,7 +412,7 @@
                     borderColor: colors[i],
                     backgroundColor: colors[i] + '15',
                     fill: false,
-                    tension: .4,
+                    tension: mainSmooth ? 0.4 : 0,
                     pointRadius: 0,
                     borderWidth: 2,
                     hidden: mainChartHidden.has(i)
@@ -473,6 +500,7 @@
         let trendChart = null;
         let trendSource = null;
         let trendUnit = '';
+        let trendSmooth = true;
 
         function initView(widgets) {
             const mapWidget = widgets.find(w => w.widget_type === 'map');
@@ -609,7 +637,7 @@
                             borderColor: '#60a5fa',
                             backgroundColor: '#60a5fa20',
                             fill: true,
-                            tension: 0.4,
+                            tension: trendSmooth ? 0.4 : 0,
                             pointRadius: 0,
                             borderWidth: 2
                         }]
@@ -617,10 +645,13 @@
                     options: {
                         responsive: true, animation: false,
                         scales: {
-                            y: { beginAtZero: true, grid: {color:'#1e293b'}, ticks: {color:'#94a3b8'} },
+                            y: { grid: {color:'#1e293b'}, ticks: {color:'#94a3b8'} },
                             x: { grid: {display:false}, ticks: {color:'#64748b', maxTicksLimit:12} }
                         },
-                        plugins: { legend: { labels: { color: '#94a3b8' } } }
+                        plugins: {
+                            legend: { labels: { color: '#94a3b8' } },
+                            zoom: zoomOpts
+                        }
                     }
                 });
 
@@ -628,6 +659,27 @@
                 document.getElementById('tmCurrent').innerHTML = 'Aktuellt: <strong>' + current + (unit ? ' ' + esc(unit) : '') + '</strong>';
             } catch {
                 document.getElementById('tmCurrent').innerHTML = 'Kunde inte ladda trenddata';
+            }
+        }
+
+        function resetMainZoom() { if (mainChart) mainChart.resetZoom(); }
+        function resetTrendZoom() { if (trendChart) trendChart.resetZoom(); }
+        function toggleMainSmooth(btn) {
+            mainSmooth = !mainSmooth;
+            btn.classList.toggle('active', mainSmooth);
+            btn.textContent = mainSmooth ? 'Mjuk' : 'Kantig';
+            if (mainChart) {
+                mainChart.data.datasets.forEach(ds => ds.tension = mainSmooth ? 0.4 : 0);
+                mainChart.update('none');
+            }
+        }
+        function toggleTrendSmooth(btn) {
+            trendSmooth = !trendSmooth;
+            btn.classList.toggle('active', trendSmooth);
+            btn.textContent = trendSmooth ? 'Mjuk' : 'Kantig';
+            if (trendChart) {
+                trendChart.data.datasets.forEach(ds => ds.tension = trendSmooth ? 0.4 : 0);
+                trendChart.update('none');
             }
         }
 
