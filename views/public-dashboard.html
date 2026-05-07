@@ -92,6 +92,22 @@
         .tm-close-btn { padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
         .tm-close-btn:hover { background: #1d4ed8; }
 
+        .map-marker-badge { background: transparent !important; border: none !important; }
+        .mmb-inner { background: #1e293b; border: 2px solid #3b82f6; border-radius: 8px; padding: 3px 10px; text-align: center; white-space: nowrap; box-shadow: 0 2px 10px rgba(0,0,0,.6); cursor: pointer; transition: transform .1s; }
+        .mmb-inner:hover { transform: scale(1.05); }
+        .mmb-inner.err { border-color: #ef4444; }
+        .mmb-inner .mmb-name { font-size: 10px; color: #94a3b8; line-height: 1.2; }
+        .mmb-inner .mmb-value { font-size: 15px; font-weight: 700; color: #60a5fa; line-height: 1.3; }
+        .mmb-inner.err .mmb-value { color: #f87171; }
+        .mmb-inner .mmb-tag { font-size: 9px; color: #64748b; line-height: 1.1; }
+
+        .chart-filters { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 10px; }
+        .chart-filter-chip { display: flex; align-items: center; gap: 4px; padding: 3px 10px; background: #0f172a; border: 1px solid #334155; border-radius: 4px; cursor: pointer; font-size: 11px; color: #94a3b8; transition: all .15s; user-select: none; }
+        .chart-filter-chip:hover { border-color: #475569; }
+        .chart-filter-chip .cf-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .chart-filter-chip.off { opacity: .4; text-decoration: line-through; }
+        .chart-filter-chip.off .cf-dot { opacity: .3; }
+
         @media (max-width: 768px) {
             .kpi-row { grid-template-columns: 1fr 1fr; }
             .widget-grid { grid-template-columns: 1fr; }
@@ -133,6 +149,7 @@
             <div class="main-chart-card" id="mainChartCard">
                 <h2>&#214;vergripande trend</h2>
                 <div class="subtitle">Alla m&#228;tpunkter kombinerade</div>
+                <div class="chart-filters" id="chartFilters"></div>
                 <canvas id="mainChart" height="140"></canvas>
             </div>
             <div class="map-card" id="mapCard">
@@ -318,10 +335,17 @@
             updateMainChart(widgets);
         }
 
+        let mainChartHidden = new Set();
+
         function updateMainChart(widgets) {
             const colors = widgets.map((_, i) => WIDGET_COLORS[i % WIDGET_COLORS.length]);
             const maxLen = Math.max(...Object.values(historyCache).map(r => r.length), 0);
-            if (!maxLen) return;
+            const filterEl = document.getElementById('chartFilters');
+
+            if (!maxLen) {
+                if (filterEl) filterEl.innerHTML = '';
+                return;
+            }
 
             const refRows = Object.values(historyCache).find(r => r.length === maxLen) || [];
             const labels = refRows.map(r => new Date(r.timestamp).toLocaleTimeString());
@@ -336,13 +360,38 @@
                     fill: false,
                     tension: .4,
                     pointRadius: 0,
-                    borderWidth: 2
+                    borderWidth: 2,
+                    hidden: mainChartHidden.has(i)
                 };
             });
 
             mainChart.data.labels = labels;
             mainChart.data.datasets = datasets;
             mainChart.update('none');
+
+            if (filterEl) {
+                filterEl.innerHTML = datasets.map((ds, i) =>
+                    '<div class="chart-filter-chip' + (ds.hidden ? ' off' : '') + '" data-idx="' + i + '" onclick="toggleChartDataset(' + i + ')">' +
+                        '<span class="cf-dot" style="background:' + ds.borderColor + ';"></span>' +
+                        esc(ds.label) +
+                    '</div>'
+                ).join('');
+            }
+        }
+
+        function toggleChartDataset(idx) {
+            if (!mainChart || !mainChart.data.datasets[idx]) return;
+            if (mainChartHidden.has(idx)) {
+                mainChartHidden.delete(idx);
+                mainChart.data.datasets[idx].hidden = false;
+            } else {
+                mainChartHidden.add(idx);
+                mainChart.data.datasets[idx].hidden = true;
+            }
+            mainChart.update('none');
+
+            const chip = document.querySelector('.chart-filter-chip[data-idx="' + idx + '"]');
+            if (chip) chip.classList.toggle('off');
         }
 
         async function refreshLive() {
@@ -370,10 +419,18 @@
                         if (i < markers.length) {
                             const m = markers[i];
                             const value = m.tag_last_value !== null && m.tag_last_value !== undefined ? m.tag_last_value.toFixed(1) : '--';
-                            lm.setPopupContent(
-                                '<strong>' + esc(m.connection_name) + '</strong><br>' +
-                                esc(m.tag_name) + ': <strong style="color:#60a5fa;">' + value + '</strong>'
-                            );
+                            const hasData = m.tag_last_value !== null && m.tag_last_value !== undefined;
+                            const cls = hasData ? '' : ' err';
+                            lm.setIcon(L.divIcon({
+                                className: 'map-marker-badge',
+                                html: '<div class="mmb-inner' + cls + '">' +
+                                    '<div class="mmb-name">' + esc(m.connection_name) + '</div>' +
+                                    '<div class="mmb-value">' + value + '</div>' +
+                                    '<div class="mmb-tag">' + esc(m.tag_name) + '</div>' +
+                                    '</div>',
+                                iconSize: null,
+                                iconAnchor: [55, 42]
+                            }));
                             lm._trendSource = m.source;
                         }
                     });
@@ -415,10 +472,7 @@
             mapEl.style.height = (cfg.height || 450) + 'px';
 
             if (leafletMap) { leafletMap.remove(); leafletMap = null; }
-            leafletMap = L.map(mapEl, { zoomControl: true }).setView(
-                [cfg.centerLat || 59.3, cfg.centerLng || 18.1],
-                cfg.defaultZoom || 9
-            );
+            leafletMap = L.map(mapEl, { zoomControl: true });
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(leafletMap);
@@ -429,11 +483,19 @@
             const markers = mapWidget._resolvedMarkers || [];
             markers.forEach(m => {
                 const value = m.tag_last_value !== null && m.tag_last_value !== undefined ? m.tag_last_value.toFixed(1) : '--';
-                const marker = L.marker([m.lat, m.lng]).addTo(leafletMarkerGroup);
-                marker.bindPopup(
-                    '<strong>' + esc(m.connection_name) + '</strong><br>' +
-                    esc(m.tag_name) + ': <strong style="color:#60a5fa;">' + value + '</strong>'
-                );
+                const hasData = m.tag_last_value !== null && m.tag_last_value !== undefined;
+                const cls = hasData ? '' : ' err';
+                const icon = L.divIcon({
+                    className: 'map-marker-badge',
+                    html: '<div class="mmb-inner' + cls + '">' +
+                        '<div class="mmb-name">' + esc(m.connection_name) + '</div>' +
+                        '<div class="mmb-value">' + value + '</div>' +
+                        '<div class="mmb-tag">' + esc(m.tag_name) + '</div>' +
+                        '</div>',
+                    iconSize: null,
+                    iconAnchor: [55, 42]
+                });
+                const marker = L.marker([m.lat, m.lng], { icon: icon }).addTo(leafletMarkerGroup);
                 marker.on('click', function() {
                     openTrendModal(m.source, m.connection_name, m.tag_name, '');
                 });
@@ -443,8 +505,12 @@
                 leafletMarkers.push(marker);
             });
 
-            if (markers.length > 1) {
-                leafletMap.fitBounds(leafletMarkerGroup.getBounds().pad(0.1));
+            if (markers.length === 1) {
+                leafletMap.setView([markers[0].lat, markers[0].lng], 14);
+            } else if (markers.length > 1) {
+                leafletMap.fitBounds(leafletMarkerGroup.getBounds().pad(0.2), { maxZoom: 15, padding: [40, 40] });
+            } else {
+                leafletMap.setView([cfg.centerLat || 59.3, cfg.centerLng || 18.1], cfg.defaultZoom || 9);
             }
         }
 
