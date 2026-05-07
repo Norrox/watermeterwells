@@ -30,8 +30,9 @@ class OpcuaConnection {
     this.onStatusChange = onStatusChange || (() => {});
     this.client = null;
     this.session = null;
-    this.subscriptions = {};
+    this.timers = {};
     this.status = 'stopped';
+    this._reconnecting = false;
     this.tags = [];
   }
 
@@ -103,59 +104,58 @@ class OpcuaConnection {
     if (!this.session) return;
 
     for (const tag of this.tags) {
-      this._subscribeTag(tag);
-    }
-  }
+      const cfg = typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config;
+      const interval = parseInt(cfg.samplingInterval) || 1000;
 
-  async _subscribeTag(tag) {
-    const cfg = typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config;
-    const interval = parseInt(cfg.samplingInterval) || 1000;
-
-    try {
-      const subscription = await this.session.createSubscription2({
-        requestedPublishingInterval: interval
-      });
-
-      const monitoredItem = await subscription.monitor(
-        { nodeId: cfg.nodeId, attributeId: AttributeIds.Value },
-        { samplingInterval: interval }
-      );
-
-      monitoredItem.on('changed', (dataValue) => {
-        let value = dataValue.value.value;
-        if (typeof value === 'bigint') value = Number(value);
-
-        if (cfg.dataType && cfg.dataType !== 'auto') {
-          switch (cfg.dataType) {
-            case 'boolean': value = Boolean(value); break;
-            case 'float': value = parseFloat(value); break;
-            case 'integer': value = parseInt(value, 10); break;
-            case 'string': value = String(value); break;
+      this.timers[tag.id] = setInterval(async () => {
+        try {
+          const result = await this.readNode(cfg.nodeId);
+          if (result.success && tag.onData) {
+            let value = result.value;
+            if (typeof value === 'bigint') value = Number(value);
+            if (cfg.dataType && cfg.dataType !== 'auto') {
+              switch (cfg.dataType) {
+                case 'boolean': value = Boolean(value); break;
+                case 'float': value = parseFloat(value); break;
+                case 'integer': value = parseInt(value, 10); break;
+                case 'string': value = String(value); break;
+              }
+            }
+            if (cfg.unitMultiplier) value *= parseFloat(cfg.unitMultiplier);
+            const decimals = cfg.decimals !== undefined ? parseInt(cfg.decimals) : null;
+            if (decimals !== null) value = parseFloat(value.toFixed(decimals));
+            tag.onData(value);
+            if (tag.onError) tag.onError(null);
+          } else if (result.error && tag.onError) {
+            if (/closed|session/i.test(result.error)) await this.ensureConnected();
+            tag.onError(result.error);
           }
+        } catch (err) {
+          if (/closed|session/i.test(err.message)) await this.ensureConnected();
+          if (tag.onError) tag.onError(err.message);
         }
-
-        if (cfg.unitMultiplier) value *= parseFloat(cfg.unitMultiplier);
-        const decimals = cfg.decimals !== undefined ? parseInt(cfg.decimals) : null;
-        if (decimals !== null) value = parseFloat(value.toFixed(decimals));
-
-        if (tag.onData) tag.onData(value);
-      });
-
-      this.subscriptions[tag.id] = subscription;
-    } catch (err) {
-      this._setStatus('error', `Tag ${cfg.nodeId}: ${err.message}`);
+      }, interval);
     }
   }
 
   stopSubscriptions() {
-    for (const id of Object.keys(this.subscriptions)) {
-      try {
-        this.subscriptions[id].terminate();
-      } catch {
-        // best-effort cleanup
-      }
+    for (const id of Object.keys(this.timers)) {
+      clearInterval(this.timers[id]);
     }
-    this.subscriptions = {};
+    this.timers = {};
+  }
+
+  async ensureConnected() {
+    if (this._reconnecting) return;
+    this._reconnecting = true;
+    try {
+      this.session = null;
+      if (this.client) { try { await this.client.disconnect(); } catch {} }
+      this.client = null;
+      await this.connect();
+    } finally {
+      this._reconnecting = false;
+    }
   }
 
   async readNode(nodeId) {
