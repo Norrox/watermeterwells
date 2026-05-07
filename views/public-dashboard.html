@@ -519,6 +519,10 @@
             document.querySelector('#viewTabs .view-tab[data-view="' + view + '"]').classList.add('active');
 
             if (view === 'map') {
+                const mapEl = document.getElementById('leafletMap');
+                if (mapEl && mainChartCard) {
+                    mapEl.style.height = mainChartCard.offsetHeight + 'px';
+                }
                 mainChartCard.style.display = 'none';
                 mapCard.classList.add('show');
                 if (leafletMap) { setTimeout(() => leafletMap.invalidateSize(), 50); }
