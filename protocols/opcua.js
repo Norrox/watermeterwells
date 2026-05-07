@@ -1,4 +1,4 @@
-const { OPCUAClient, AttributeIds, MessageSecurityMode, SecurityPolicy } = require('node-opcua');
+﻿const { OPCUAClient, AttributeIds, MessageSecurityMode, SecurityPolicy } = require('node-opcua');
 
 const SECURITY_MODES = {
   'None': MessageSecurityMode.None,
@@ -105,50 +105,6 @@ class OpcuaConnection {
           connectTimeout(this.config.timeout)
         ]);
         clearPendingTimers();
-      }
-
-      this._setStatus('connected');
-    } catch (err) {
-      this._setStatus('error', err.message);
-      throw err;
-    }
-  }
-      });
-
-      const connectTimeout = ms => new Promise((_, reject) =>
-        setTimeout(() => { this.client?.disconnect().catch(() => {}); reject(new Error(`OPC UA-anslutningstimeout (${ms}ms) — kan inte n&#229; ${this.config.url}`)); }, ms)
-      );
-
-      await Promise.race([
-        this.client.connect(this.config.url),
-        connectTimeout(this.config.timeout)
-      ]);
-
-      const hasCredentials = this.config.username && this.config.username.trim();
-      if (hasCredentials) {
-        try {
-          this.session = await Promise.race([
-            this.client.createSession({
-              userName: this.config.username.trim(),
-              password: this.config.password || ''
-            }),
-            connectTimeout(this.config.timeout)
-          ]);
-        } catch (err) {
-          if (err.message && err.message.includes('user token policy')) {
-            this.session = await Promise.race([
-              this.client.createSession(),
-              connectTimeout(this.config.timeout)
-            ]);
-          } else {
-            throw err;
-          }
-        }
-      } else {
-        this.session = await Promise.race([
-          this.client.createSession(),
-          connectTimeout(this.config.timeout)
-        ]);
       }
 
       this._setStatus('connected');
