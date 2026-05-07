@@ -467,10 +467,7 @@
         function initMapWidget(mapWidget) {
             const cfg = mapWidget.config || {};
             const mapEl = document.getElementById('leafletMap');
-
-            const chartCard = document.getElementById('mainChartCard');
-            const targetH = chartCard ? chartCard.offsetHeight : (cfg.height || 450);
-            mapEl.style.height = targetH + 'px';
+            mapEl.style.height = (cfg.height || 500) + 'px';
 
             if (leafletMap) { leafletMap.remove(); leafletMap = null; }
             leafletMap = L.map(mapEl, { zoomControl: true });
