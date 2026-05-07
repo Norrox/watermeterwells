@@ -677,6 +677,12 @@
                         lines.push('  M&#228;tomr&#229;de: ' + data.config.scaleMin + ' - ' + data.config.scaleMax);
                     } else if (data.config.scalingMode === 'linear') {
                         lines.push('  Factor: ' + (data.config.scalingFactor||1) + '  Offset: ' + (data.config.offset||0));
+                    } else if (data.config.scalingMode === 'builder') {
+                        lines.push('  Dividera: ' + (data.config.divide||1) + '  Subtrahera: ' + (data.config.subtract||0) + '  Multiplicera: ' + (data.config.multiply||1) + '  L&#228;gg till: ' + (data.config.add||0));
+                        const cl = [];
+                        if (data.config.clampMinEnabled) cl.push('min: ' + (data.config.clampMin||0));
+                        if (data.config.clampMaxEnabled) cl.push('max: ' + (data.config.clampMax||0));
+                        if (cl.length) lines.push('  Clamp: ' + cl.join(', '));
                     } else if (data.config.scalingMode === 'custom') {
                         lines.push('  Uttryck: ' + (data.config.customExpression||'?'));
                     }
@@ -873,6 +879,7 @@
                                     '<option value="direct"' + (cfg.scalingMode==='direct'?' selected':'') + '>Direkt (endast avrunda)</option>' +
                                     '<option value="4-20mA"' + (cfg.scalingMode==='4-20mA'?' selected':'') + '>4-20mA &#8594; Fl&#246;de</option>' +
                                     '<option value="0-10V"' + (cfg.scalingMode==='0-10V'?' selected':'') + '>0-10V &#8594; Fl&#246;de</option>' +
+                                    '<option value="builder"' + (cfg.scalingMode==='builder'?' selected':'') + '>Formelbyggare</option>' +
                                     '<option value="custom"' + (cfg.scalingMode==='custom'?' selected':'') + '>Custom uttryck (JS)</option>' +
                                 '</select>' +
                             '</div>' +
@@ -1028,6 +1035,40 @@
                     '<div class="form-group"><label>M&#228;tomr&#229;de Max</label><input type="number" step="0.01" id="t-scaleMax" value="' + (cfg.scaleMax || 80) + '"></div>' +
                 '</div>';
                 formula = '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = ((R&#229;v&#228;rde - ' + (cfg.signalMin||0) + ') / (' + (cfg.signalMax||10) + ' - ' + (cfg.signalMin||0) + ')) &times; (' + (cfg.scaleMax||80) + ' - ' + (cfg.scaleMin||0) + ') + ' + (cfg.scaleMin||0);
+            } else if (mode === 'builder') {
+                const div  = cfg.divide !== undefined ? parseFloat(cfg.divide) : 1;
+                const sub  = cfg.subtract !== undefined ? parseFloat(cfg.subtract) : 0;
+                const mult = cfg.multiply !== undefined ? parseFloat(cfg.multiply) : 1;
+                const add  = cfg.add !== undefined ? parseFloat(cfg.add) : 0;
+                const cmi  = cfg.clampMinEnabled ? true : false;
+                const cmiv = cfg.clampMin !== undefined ? parseFloat(cfg.clampMin) : 0;
+                const cma  = cfg.clampMaxEnabled ? true : false;
+                const cmav = cfg.clampMax !== undefined ? parseFloat(cfg.clampMax) : 0;
+                fields = '<div class="form-row">' +
+                    '<div class="form-group"><label>Dividera med</label><input type="number" step="0.01" id="t-divide" value="' + div + '"><small style="color:#64748b;">R&#229;v&#228;rde / detta</small></div>' +
+                    '<div class="form-group"><label>Subtrahera</label><input type="number" step="0.01" id="t-subtract" value="' + sub + '"><small style="color:#64748b;">(v&#228;rde - detta)</small></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Multiplicera med</label><input type="number" step="0.01" id="t-multiply" value="' + mult + '"><small style="color:#64748b;">&times; detta</small></div>' +
+                    '<div class="form-group"><label>L&#228;gg till</label><input type="number" step="0.01" id="t-add" value="' + add + '"><small style="color:#64748b;">+ detta sist</small></div>' +
+                '</div>' +
+                '<div style="font-size:13px;color:#94a3b8;margin-top:4px;margin-bottom:8px;">Clamp (begr&#228;nsa v&#228;rde):</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label><input type="checkbox" id="t-clampMinEnabled" onchange="document.getElementById(\'t-clampMin\').disabled=!this.checked"' + (cmi ? ' checked' : '') + '> Klampa min</label>' +
+                        '<input type="number" step="0.01" id="t-clampMin" value="' + cmiv + '"' + (cmi ? '' : ' disabled') + '></div>' +
+                    '<div class="form-group"><label><input type="checkbox" id="t-clampMaxEnabled" onchange="document.getElementById(\'t-clampMax\').disabled=!this.checked"' + (cma ? ' checked' : '') + '> Klampa max</label>' +
+                        '<input type="number" step="0.01" id="t-clampMax" value="' + cmav + '"' + (cma ? '' : ' disabled') + '></div>' +
+                '</div>';
+                let f = '<strong style="color:#94a3b8;">Formel:</strong> v = (R&#229;v&#228;rde';
+                if (div !== 1) f += ' / ' + div;
+                if (sub !== 0) f += ' - ' + sub;
+                f += ') &times; ' + mult;
+                if (add !== 0) f += ' + ' + add;
+                const clamps = [];
+                if (cmi) clamps.push('min: ' + cmiv);
+                if (cma) clamps.push('max: ' + cmav);
+                if (clamps.length) f += ', clamp(' + clamps.join(', ') + ')';
+                formula = f;
             } else if (mode === 'custom') {
                 fields = '<div class="form-group"><label>JavaScript-uttryck (anv&#228;nd <code style="color:#fbbf24;">value</code> och <code style="color:#fbbf24;">Math</code>)</label>' +
                     '<textarea id="t-customExpression" rows="3" style="font-family:monospace;font-size:13px;" placeholder="T.ex.: ((value/1000 - 2) * 16 / 8 + 4 - 4) * 50 / 16">' + esc(cfg.customExpression || '') + '</textarea>' +
@@ -1202,6 +1243,14 @@
                     signalMax: parseFloat(getFieldValue('t-signalMax')) || null,
                     scaleMin: parseFloat(getFieldValue('t-scaleMin')) || null,
                     scaleMax: parseFloat(getFieldValue('t-scaleMax')) || null,
+                    divide: parseFloat(getFieldValue('t-divide')) || 1,
+                    subtract: parseFloat(getFieldValue('t-subtract')) || 0,
+                    multiply: parseFloat(getFieldValue('t-multiply')) || 1,
+                    add: parseFloat(getFieldValue('t-add')) || 0,
+                    clampMinEnabled: document.getElementById('t-clampMinEnabled') ? document.getElementById('t-clampMinEnabled').checked : false,
+                    clampMin: parseFloat(getFieldValue('t-clampMin')) || 0,
+                    clampMaxEnabled: document.getElementById('t-clampMaxEnabled') ? document.getElementById('t-clampMaxEnabled').checked : false,
+                    clampMax: parseFloat(getFieldValue('t-clampMax')) || 0,
                     customExpression: getFieldValue('t-customExpression') || null,
                     pollInterval: parseInt(document.getElementById('t-pollInterval').value) || 1000,
                     logToDatabase: document.getElementById('t-logToDatabase').checked,

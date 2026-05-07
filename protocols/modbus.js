@@ -215,6 +215,18 @@ class ModbusConnection {
         }
         break;
 
+      case 'builder':
+        {
+          const divide = parseFloat(cfg.divide) || 1;
+          const subtract = parseFloat(cfg.subtract) || 0;
+          const multiply = parseFloat(cfg.multiply) || 1;
+          const add = parseFloat(cfg.add) || 0;
+          value = (rawValue / divide - subtract) * multiply + add;
+          if (cfg.clampMinEnabled) value = Math.max(parseFloat(cfg.clampMin) || 0, value);
+          if (cfg.clampMaxEnabled) value = Math.min(parseFloat(cfg.clampMax) || 0, value);
+        }
+        break;
+
       case 'custom':
         if (cfg.customExpression) {
           try {
