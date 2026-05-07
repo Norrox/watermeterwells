@@ -265,7 +265,8 @@
 
         function renderWidgets(widgets) {
             const grid = document.getElementById('widgetGrid');
-            grid.innerHTML = widgets.map((w, i) => {
+            const visible = widgets.filter(w => w.widget_type !== 'map');
+            grid.innerHTML = visible.map((w, i) => {
                 const cfg = w.config || {};
                 const color = WIDGET_COLORS[i % WIDGET_COLORS.length];
                 const value = w.tag_last_value !== null && w.tag_last_value !== undefined ? w.tag_last_value.toFixed(1) : '--';
@@ -306,7 +307,8 @@
         }
 
         async function loadHistoryForAll(widgets) {
-            for (const w of widgets) {
+            const trendWidgets = widgets.filter(w => w.widget_type !== 'map');
+            for (const w of trendWidgets) {
                 if (!w.tag_name || !w.connection_name) continue;
                 const source = w.connection_name + '_' + w.tag_name;
                 try {
@@ -332,7 +334,7 @@
                     }
                 } catch {}
             }
-            updateMainChart(widgets);
+            updateMainChart(trendWidgets);
         }
 
         let mainChartHidden = new Set();
@@ -342,13 +344,9 @@
             const maxLen = Math.max(...Object.values(historyCache).map(r => r.length), 0);
             const filterEl = document.getElementById('chartFilters');
 
-            if (!maxLen) {
-                if (filterEl) filterEl.innerHTML = '';
-                return;
-            }
-
-            const refRows = Object.values(historyCache).find(r => r.length === maxLen) || [];
-            const labels = refRows.map(r => new Date(r.timestamp).toLocaleTimeString());
+            const labels = maxLen
+                ? (Object.values(historyCache).find(r => r.length === maxLen) || []).map(r => new Date(r.timestamp).toLocaleTimeString())
+                : [];
 
             const datasets = widgets.map((w, i) => {
                 const rows = historyCache[w.id] || [];
@@ -469,7 +467,10 @@
         function initMapWidget(mapWidget) {
             const cfg = mapWidget.config || {};
             const mapEl = document.getElementById('leafletMap');
-            mapEl.style.height = (cfg.height || 450) + 'px';
+
+            const chartCard = document.getElementById('mainChartCard');
+            const targetH = chartCard ? chartCard.offsetHeight : (cfg.height || 450);
+            mapEl.style.height = targetH + 'px';
 
             if (leafletMap) { leafletMap.remove(); leafletMap = null; }
             leafletMap = L.map(mapEl, { zoomControl: true });
