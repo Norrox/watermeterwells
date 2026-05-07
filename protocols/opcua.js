@@ -237,4 +237,20 @@ class OpcuaConnection {
   }
 }
 
-module.exports = { OpcuaConnection, SECURITY_MODES, SECURITY_POLICIES };
+module.exports = { OpcuaConnection, SECURITY_MODES, SECURITY_POLICIES, normalizeNodeId };
+
+function normalizeNodeId(raw) {
+  if (!raw || typeof raw !== 'string') return raw;
+  const m = raw.match(/^NS(\d+)\|(Numeric|String|Guid|Opaque)\|(.+)$/i);
+  if (!m) return raw;
+  const ns = m[1];
+  const type = m[2].toLowerCase();
+  const id = m[3];
+  switch (type) {
+    case 'numeric': return `ns=${ns};i=${id}`;
+    case 'string': return `ns=${ns};s=${id}`;
+    case 'guid': return `ns=${ns};g=${id}`;
+    case 'opaque': return `ns=${ns};b=${id}`;
+    default: return raw;
+  }
+}
