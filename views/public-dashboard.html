@@ -149,6 +149,14 @@
             <div class="main-chart-card" id="mainChartCard">
                 <h2>&#214;vergripande trend</h2>
                 <div class="subtitle">Alla m&#228;tpunkter kombinerade</div>
+                <div class="trend-period-btns" id="mainPeriodBtns">
+                    <button class="trend-period-btn" data-minutes="5" onclick="switchMainPeriod(5, this)">5 min</button>
+                    <button class="trend-period-btn" data-minutes="30" onclick="switchMainPeriod(30, this)">30 min</button>
+                    <button class="trend-period-btn active" data-minutes="60" onclick="switchMainPeriod(60, this)">1 timme</button>
+                    <button class="trend-period-btn" data-minutes="360" onclick="switchMainPeriod(360, this)">6 tim</button>
+                    <button class="trend-period-btn" data-minutes="1440" onclick="switchMainPeriod(1440, this)">24 tim</button>
+                    <button class="trend-period-btn" data-minutes="10080" onclick="switchMainPeriod(10080, this)">7 dagar</button>
+                </div>
                 <div class="chart-filters" id="chartFilters"></div>
                 <canvas id="mainChart" height="140"></canvas>
             </div>
@@ -306,19 +314,25 @@
             }, 50);
         }
 
-        async function loadHistoryForAll(widgets) {
+        let mainTrendMinutes = 60;
+
+        async function loadHistoryForAll(widgets, minutes) {
+            const mins = minutes || mainTrendMinutes;
             const trendWidgets = widgets.filter(w => w.widget_type !== 'map');
             for (const w of trendWidgets) {
                 if (!w.tag_name || !w.connection_name) continue;
                 const source = w.connection_name + '_' + w.tag_name;
                 try {
-                    const res = await fetch('/api/dashboards/history/' + encodeURIComponent(source) + '?minutes=60');
+                    const res = await fetch('/api/dashboards/history/' + encodeURIComponent(source) + '?minutes=' + mins);
                     const rows = await res.json();
                     historyCache[w.id] = rows;
 
                     if (sparkCharts[w.id] && rows.length) {
                         const last20 = rows.slice(-20);
-                        sparkCharts[w.id].data.labels = last20.map(r => new Date(r.timestamp).toLocaleTimeString());
+                        sparkCharts[w.id].data.labels = last20.map(r => {
+                            const d = new Date(r.timestamp);
+                            return mins <= 60 ? d.toLocaleTimeString() : d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                        });
                         sparkCharts[w.id].data.datasets[0].data = last20.map(r => r.flow_rate);
                         sparkCharts[w.id].update('none');
                     }
@@ -334,19 +348,33 @@
                     }
                 } catch {}
             }
-            updateMainChart(trendWidgets);
+            updateMainChart(trendWidgets, mins);
+        }
+
+        function switchMainPeriod(minutes, btn) {
+            mainTrendMinutes = minutes;
+            document.querySelectorAll('#mainPeriodBtns .trend-period-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            const widgets = (dashboard && dashboard.widgets) ? dashboard.widgets : [];
+            const trendWidgets = widgets.filter(w => w.widget_type !== 'map');
+            loadHistoryForAll(widgets, minutes);
         }
 
         let mainChartHidden = new Set();
 
-        function updateMainChart(widgets) {
+        function updateMainChart(widgets, mins) {
             const colors = widgets.map((_, i) => WIDGET_COLORS[i % WIDGET_COLORS.length]);
             const maxLen = Math.max(...Object.values(historyCache).map(r => r.length), 0);
             const filterEl = document.getElementById('chartFilters');
 
             const labels = maxLen
-                ? (Object.values(historyCache).find(r => r.length === maxLen) || []).map(r => new Date(r.timestamp).toLocaleTimeString())
-                : [];
+                ? (Object.values(historyCache).find(r => r.length === maxLen) || []).map(r => {
+                    const d = new Date(r.timestamp);
+                    const m = mins || 60;
+                    if (m <= 60) return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                    if (m <= 1440) return d.toLocaleDateString([], {month:'short', day:'numeric'}) + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                    return d.toLocaleDateString([], {month:'short', day:'numeric'});
+                }) : [];
 
             const datasets = widgets.map((w, i) => {
                 const rows = historyCache[w.id] || [];
