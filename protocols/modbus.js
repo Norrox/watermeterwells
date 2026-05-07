@@ -22,6 +22,7 @@ class ModbusConnection {
       timeout: parseInt(config.timeout) || 5000
     };
     this.connected = false;
+    this._lastCloseLog = 0;
     this.onStatusChange = onStatusChange || (() => {});
     this.socket = null;
     this.client = null;
@@ -65,7 +66,13 @@ class ModbusConnection {
 
       this.socket.on('close', () => {
         this.connected = false;
-        this._setStatus('stopped');
+        if (this.status !== 'stopped') {
+          const now = Date.now();
+          if (now - this._lastCloseLog > 30000) {
+            this._lastCloseLog = now;
+            console.error(`[Modbus] Socket stängdes oväntat — pollningen återansluter automatiskt`);
+          }
+        }
       });
 
       this.socket.connect({ host: this.config.host, port: this.config.port });
@@ -120,7 +127,12 @@ class ModbusConnection {
     }
 
     const address = cfg.address !== undefined ? cfg.address : '?';
-    const desc = MODBUS_ERRORS[code] || `Okänd felkod ${code}`;
+    let desc;
+    if (code !== 0) {
+      desc = MODBUS_ERRORS[code] || `Okänd felkod ${code}`;
+    } else {
+      desc = msg.length > 100 ? msg.substring(0, 100) + '...' : msg;
+    }
     let hint = '';
     if (code === 2) hint = ' — Kontrollera att adressen är rätt. PLC-notation 40001 = adress 0.';
     return `Adress ${address}: ${desc}${hint}`;

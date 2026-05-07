@@ -285,12 +285,12 @@ router.post('/test/modbus-read', async (req, res) => {
 
 router.post('/test/opcua-read', async (req, res) => {
   try {
-    const { url, securityMode, securityPolicy, username, password, nodeIds } = req.body;
+    const { url, timeout, securityMode, securityPolicy, username, password, nodeIds } = req.body;
     if (!url || !nodeIds || !nodeIds.length) {
       return res.status(400).json({ error: 'URL och nodeId-lista krävs' });
     }
 
-    const instance = new OpcuaConnection({ url, securityMode, securityPolicy, username, password });
+    const instance = new OpcuaConnection({ url, timeout, securityMode, securityPolicy, username, password });
     try {
       await instance.connect();
       const results = await instance.testRead(nodeIds);
@@ -307,10 +307,10 @@ router.post('/test/opcua-read', async (req, res) => {
 
 router.post('/test/opcua-browse', async (req, res) => {
   try {
-    const { url, securityMode, securityPolicy, username, password, nodeId } = req.body;
+    const { url, timeout, securityMode, securityPolicy, username, password, nodeId } = req.body;
     if (!url) return res.status(400).json({ error: 'URL krävs' });
 
-    const instance = new OpcuaConnection({ url, securityMode, securityPolicy, username, password });
+    const instance = new OpcuaConnection({ url, timeout, securityMode, securityPolicy, username, password });
     try {
       await instance.connect();
       const result = await instance.browse(nodeId || 'RootFolder');

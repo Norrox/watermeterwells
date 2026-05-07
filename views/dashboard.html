@@ -441,6 +441,15 @@
         function getAuthHeaders() {
             return {'Content-Type':'application/json'};
         }
+        async function fetchWithTimeout(url, options, timeoutMs = 30000) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await fetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
 
         // ── Dashboard ──
         const ctx = document.getElementById('flowChart').getContext('2d');
@@ -606,7 +615,7 @@
             const btn = event.target;
             btn.disabled = true; btn.textContent = 'Startar...';
             try {
-                const res = await fetch('/api/admin/connections/' + id + '/start', {method:'POST', headers:getAuthHeaders()});
+                const res = await fetchWithTimeout('/api/admin/connections/' + id + '/start', {method:'POST', headers:getAuthHeaders()});
                 const data = await res.json();
                 if (!data.success) alert('Kunde inte starta: ' + data.error);
             } catch (e) { alert('Nätverksfel: ' + e.message); }
@@ -623,7 +632,7 @@
         async function testConn(id) {
             const el = document.getElementById('test-result-' + id) || document.getElementById('modalContent');
             el.innerHTML = '<div class="test-result">Testar anslutningen...</div>';
-            const res = await fetch('/api/admin/connections/' + id + '/test', {method:'POST', headers:getAuthHeaders()});
+            const res = await fetchWithTimeout('/api/admin/connections/' + id + '/test', {method:'POST', headers:getAuthHeaders()});
             const data = await res.json();
             if (data.success) {
                 let text = '&#10004; Anslutning OK\n' + esc(data.message);
@@ -655,7 +664,7 @@
 
         // ── Tag Actions ──
         async function testTag(tagId) {
-            const res = await fetch('/api/admin/tags/' + tagId + '/test', {method:'POST', headers:getAuthHeaders()});
+            const res = await fetchWithTimeout('/api/admin/tags/' + tagId + '/test', {method:'POST', headers:getAuthHeaders()});
             const data = await res.json();
             const lines = [];
             if (data.success) {
@@ -751,6 +760,7 @@
                     '<div class="form-group"><label>Anv&#228;ndarnamn (frivilligt)</label><input id="f-username" value="' + esc(cfg.username || '') + '"></div>' +
                     '<div class="form-group"><label>L&#246;senord (frivilligt)</label><input type="password" id="f-password" value="' + esc(cfg.password || '') + '"></div>' +
                 '</div>' +
+                '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="f-timeout" value="' + (cfg.timeout || 5000) + '" step="1000" min="1000"><small style="color:#64748b;">Standard 5000ms. Anslutningen avbryts om servern inte svarar inom denna tid.</small></div>' +
                 '<div class="form-group"><label><input type="checkbox" id="f-enabled" ' + (!conn || conn.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
                 '<div class="modal-actions">' +
                     '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
@@ -766,6 +776,7 @@
                 enabled: document.getElementById('f-enabled').checked,
                 config: {
                     url: document.getElementById('f-url').value,
+                    timeout: parseInt(document.getElementById('f-timeout').value) || 5000,
                     securityMode: document.getElementById('f-securityMode').value,
                     securityPolicy: document.getElementById('f-securityPolicy').value,
                     username: document.getElementById('f-username').value || null,
@@ -955,6 +966,16 @@
                     '<h3>' + (editId ? 'Redigera' : 'Ny') + ' OPC UA-tagg</h3>' +
                     '<div class="form-group"><label>Namn</label><input id="t-name" value="' + esc(tag ? tag.name : '') + '" placeholder="T.ex. Fl&#246;dessensor 1"></div>' +
                     '<div class="form-group"><label>NodeId</label><input id="t-nodeId" value="' + esc(cfg.nodeId || '') + '" placeholder="T.ex. ns=1;s=FlowSensor01"></div>' +
+                    '<div class="form-group"><label>Datatyp</label>' +
+                        '<select id="t-dataType">' +
+                            '<option value="auto"' + (!cfg.dataType || cfg.dataType === 'auto' ? ' selected' : '') + '>Auto (rekommenderas)</option>' +
+                            '<option value="boolean"' + (cfg.dataType === 'boolean' ? ' selected' : '') + '>Boolean</option>' +
+                            '<option value="float"' + (cfg.dataType === 'float' ? ' selected' : '') + '>Float</option>' +
+                            '<option value="integer"' + (cfg.dataType === 'integer' ? ' selected' : '') + '>Integer</option>' +
+                            '<option value="string"' + (cfg.dataType === 'string' ? ' selected' : '') + '>String</option>' +
+                        '</select>' +
+                        '<div style="font-size:11px;color:#64748b;margin-top:4px;">⚠️ Inte nödvändigt — OPC UA skickar automatiskt rätt datatyp. Använd bara om du vill tvinga en specifik konvertering.</div>' +
+                    '</div>' +
                     '<div class="form-row">' +
                         '<div class="form-group"><label>Samplingsintervall (ms)</label><input type="number" id="t-samplingInterval" value="' + (cfg.samplingInterval || 1000) + '"></div>' +
                         '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min"></div>' +
@@ -1260,6 +1281,7 @@
             } else {
                 config = {
                     nodeId: document.getElementById('t-nodeId').value,
+                    dataType: document.getElementById('t-dataType').value || 'auto',
                     samplingInterval: parseInt(document.getElementById('t-samplingInterval').value) || 1000,
                     decimals: parseInt(document.getElementById('t-decimals').value) || 0,
                     unitMultiplier: parseFloat(document.getElementById('t-unitMultiplier').value) || 1,
@@ -1284,6 +1306,7 @@
                 '<div class="form-row"><div class="form-group"><label>S&#228;kerhetsl&#228;ge</label><select id="t-secMode"><option>None</option><option>Sign</option><option>SignAndEncrypt</option></select></div>' +
                 '<div class="form-group"><label>S&#228;kerhetspolicy</label><select id="t-secPolicy"><option>None</option><option>Basic256Sha256</option></select></div></div>' +
                 '<div class="form-row"><div class="form-group"><label>Anv&#228;ndarnamn</label><input id="t-user"></div><div class="form-group"><label>L&#246;senord</label><input type="password" id="t-pass"></div></div>' +
+                '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="t-timeout" value="5000" step="1000" min="1000"></div>' +
                 '<h4 style="margin:12px 0 8px;color:#94a3b8;">L&#228;s noder</h4>' +
                 '<div class="form-group"><label>NodeIds (en per rad)</label><textarea id="t-nodeIds" rows="4" placeholder="ns=1;s=Sensor1\nns=1;s=Sensor2"></textarea></div>' +
                 '<div class="btn-group"><button class="btn btn-primary" onclick="runOpcuaTest()">Testa l&#228;sning</button>' +
@@ -1299,10 +1322,11 @@
             const nodeIds = document.getElementById('t-nodeIds').value.split('\n').map(s=>s.trim()).filter(Boolean);
             if (!nodeIds.length) { el.innerHTML = '<div class="test-result" style="border-color:#eab308;">Ange minst en NodeId</div>'; return; }
             try {
-                const res = await fetch('/api/admin/test/opcua-read', {
+                const res = await fetchWithTimeout('/api/admin/test/opcua-read', {
                     method:'POST', headers:getAuthHeaders(),
                     body: JSON.stringify({
                         url: document.getElementById('t-url').value,
+                        timeout: parseInt(document.getElementById('t-timeout').value) || 5000,
                         securityMode: document.getElementById('t-secMode').value,
                         securityPolicy: document.getElementById('t-secPolicy').value,
                         username: document.getElementById('t-user').value || null,
@@ -1322,10 +1346,11 @@
             const el = document.getElementById('opcua-test-result');
             el.innerHTML = '<div class="test-result">Bl&#228;ddrar...</div>';
             try {
-                const res = await fetch('/api/admin/test/opcua-browse', {
+                const res = await fetchWithTimeout('/api/admin/test/opcua-browse', {
                     method:'POST', headers:getAuthHeaders(),
                     body: JSON.stringify({
                         url: document.getElementById('t-url').value,
+                        timeout: parseInt(document.getElementById('t-timeout').value) || 5000,
                         securityMode: document.getElementById('t-secMode').value,
                         securityPolicy: document.getElementById('t-secPolicy').value,
                         username: document.getElementById('t-user').value || null,

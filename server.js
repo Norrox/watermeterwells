@@ -18,6 +18,7 @@ async function boot() {
   const server = app.listen(config.port, () => {
     console.log(`[Boot] Webserver aktiv på http://localhost:${config.port}`);
   });
+  server.setTimeout(30000);
 
   process.on('SIGTERM', () => shutdown(server));
   process.on('SIGINT', () => shutdown(server));
