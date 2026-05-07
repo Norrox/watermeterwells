@@ -159,19 +159,8 @@
 
             <!-- DASHBOARD PAGE -->
             <div id="page-dashboard" class="page active">
-                <div class="stat-grid">
-                    <div class="stat-card"><div class="label">Senaste fl&#246;de</div><div class="value" id="statLatest" style="color:#60a5fa;">--</div><div class="unit">L/min</div></div>
-                    <div class="stat-card green"><div class="label">Snittfl&#246;de</div><div class="value" id="statAvg" style="color:#4ade80;">--</div><div class="unit">L/min</div></div>
-                    <div class="stat-card yellow"><div class="label">Prover totalt</div><div class="value" id="statSamples" style="color:#fde047;">--</div><div class="unit">m&#228;tningar</div></div>
-                    <div class="stat-card purple"><div class="label">Max fl&#246;de</div><div class="value" id="statMax" style="color:#c084fc;">--</div><div class="unit">L/min</div></div>
-                </div>
-                <div class="card">
-                    <div class="card-header"><h2>Realtidsfl&#246;de (L/min)</h2></div>
-                    <canvas id="flowChart" height="120"></canvas>
-                </div>
-                <div class="card">
-                    <div class="card-header"><h2>Senaste M&#228;tarst&#228;llningar</h2></div>
-                    <div id="meterList" style="max-height:250px;overflow-y:auto;"></div>
+                <div id="dashboardTabContent">
+                    <div class="empty-state">Laddar...</div>
                 </div>
             </div>
 
@@ -348,6 +337,7 @@
                 a.classList.add('active');
                 document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
                 document.getElementById('page-' + a.dataset.page).classList.add('active');
+                if (a.dataset.page === 'dashboard') loadDefaultDashboardForTab();
                 if (a.dataset.page === 'opcua') loadConnections('opcua');
                 if (a.dataset.page === 'modbus') loadConnections('modbus');
                 if (a.dataset.page === 'settings') loadSystemStatus();
@@ -452,31 +442,124 @@
         }
 
         // ── Dashboard ──
-        const ctx = document.getElementById('flowChart').getContext('2d');
-        const flowChart = new Chart(ctx, {
-            type: 'line',
-            data: { labels: [], datasets: [{ label: 'Flöde', data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,.15)', fill: true, tension: .4, pointRadius: 0 }] },
-            options: { responsive: true, animation: false, scales: { y: { beginAtZero: true, grid: {color:'#1e293b'} }, x: { grid: {display:false}, ticks: {maxTicksLimit:10} } }, plugins: { legend: {display:false} } }
-        });
+        let dashTabCharts = {};
+        const DASH_WIDGET_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
 
-        async function updateDashboard() {
+        function destroyDashTabCharts() {
+            Object.values(dashTabCharts).forEach(c => { try { c.destroy(); } catch {} });
+            dashTabCharts = {};
+        }
+
+        async function loadDefaultDashboardForTab() {
+            const el = document.getElementById('dashboardTabContent');
+            destroyDashTabCharts();
+            el.innerHTML = '<div class="empty-state">Laddar...</div>';
             try {
-                const [dataRes, statsRes] = await Promise.all([fetch('/api/data'), fetch('/api/stats')]);
-                const data = await dataRes.json();
-                const stats = await statsRes.json();
-                flowChart.data.labels = data.flow.map(f => new Date(f.timestamp).toLocaleTimeString());
-                flowChart.data.datasets[0].data = data.flow.map(f => f.flow_rate);
-                flowChart.update('none');
-                document.getElementById('statLatest').textContent = stats.latestFlow ? stats.latestFlow.toFixed(1) : '--';
-                document.getElementById('statAvg').textContent = stats.avgFlow || '--';
-                document.getElementById('statSamples').textContent = stats.totalSamples || '--';
-                document.getElementById('statMax').textContent = stats.maxFlow || '--';
-                document.getElementById('meterList').innerHTML = data.meters.map(m => {
-                    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid #334155;">' +
-                        '<div><span class="badge badge-blue">' + m.interval_type + '</span> <span style="color:#64748b;margin-left:8px;">' + new Date(m.timestamp).toLocaleString() + '</span></div>' +
-                        '<span style="font-family:monospace;color:#60a5fa;">' + m.reading_value + ' m\u00B3</span></div>';
-                }).join('');
-            } catch {}
+                const res = await fetch('/api/dashboards/default');
+                if (res.status === 404) {
+                    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div><p>Ingen standard-dashboard satt.</p><p style="margin-top:8px;">G&#229; till <a href="#" onclick="document.querySelector(\'[data-page=mydashboards]\').click();return false" style="color:#60a5fa;">Mina Dashboards</a> och klicka "G&#246;r till standard" p&#229; en dashboard.</p></div>';
+                    return;
+                }
+                if (!res.ok) throw new Error();
+                const dashboard = await res.json();
+                const widgets = dashboard.widgets || [];
+                if (!widgets.length) {
+                    el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div><p>Dashboarden <strong>' + esc(dashboard.name) + '</strong> har inga widgetar &#228;nnu.</p><p style="margin-top:8px;">G&#229; till <a href="#" onclick="document.querySelector(\'[data-page=mydashboards]\').click();return false" style="color:#60a5fa;">Mina Dashboards</a> och bygg widgetar.</p></div>';
+                    return;
+                }
+                renderDashTabWidgets(widgets);
+                loadDashTabHistory(widgets);
+            } catch {
+                el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div><p>Ingen standard-dashboard satt.</p><p style="margin-top:8px;">G&#229; till <a href="#" onclick="document.querySelector(\'[data-page=mydashboards]\').click();return false" style="color:#60a5fa;">Mina Dashboards</a> och skapa en dashboard.</p></div>';
+            }
+        }
+
+        function renderDashTabWidgets(widgets) {
+            const el = document.getElementById('dashboardTabContent');
+            const total = widgets.reduce((s, w) => s + (w.tag_last_value || 0), 0);
+            const withData = widgets.filter(w => w.tag_last_value !== null && w.tag_last_value !== undefined);
+            const alerts = widgets.filter(w => {
+                const cfg = w.config || {};
+                const v = w.tag_last_value;
+                if (v === null || v === undefined) return false;
+                if (cfg.warnLow !== null && cfg.warnLow !== undefined && v < cfg.warnLow) return true;
+                if (cfg.warnHigh !== null && cfg.warnHigh !== undefined && v > cfg.warnHigh) return true;
+                return false;
+            });
+
+            let html = '<div class="stat-grid">' +
+                '<div class="stat-card"><div class="label">Totalt v&#228;rde</div><div class="value" style="color:#60a5fa;">' + total.toFixed(1) + ' <span class="unit">total</span></div></div>' +
+                '<div class="stat-card green"><div class="label">Aktiva punkter</div><div class="value" style="color:#4ade80;">' + withData.length + ' <span class="unit">/ ' + widgets.length + '</span></div></div>' +
+                '<div class="stat-card ' + (alerts.length ? 'yellow' : 'green') + '"><div class="label">Varningar</div><div class="value" style="color:' + (alerts.length ? '#fde047' : '#4ade80') + ';">' + (alerts.length || 'Inga') + '</div></div>' +
+            '</div>';
+
+            html += '<div class="widget-grid" style="display:grid;grid-template-columns:repeat(auto-fill, minmax(280px, 1fr));gap:12px;">';
+            widgets.forEach((w, i) => {
+                const cfg = w.config || {};
+                const color = DASH_WIDGET_COLORS[i % DASH_WIDGET_COLORS.length];
+                const value = w.tag_last_value !== null && w.tag_last_value !== undefined ? w.tag_last_value.toFixed(1) : '--';
+                const unit = cfg.unit || '';
+                const warnLow = cfg.warnLow;
+                const warnHigh = cfg.warnHigh;
+                const isAlert = (warnLow !== null && warnLow !== undefined && w.tag_last_value < warnLow) ||
+                                (warnHigh !== null && warnHigh !== undefined && w.tag_last_value > warnHigh);
+                const statusClass = w.tag_last_value === null || w.tag_last_value === undefined ? 'stopped' : (isAlert ? 'error' : 'connected');
+                html += '<div class="card" style="border-top:3px solid ' + color + ';">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+                        '<strong>' + esc(w.title) + '</strong>' +
+                        '<span class="status-dot ' + statusClass + '"></span>' +
+                    '</div>' +
+                    '<div style="display:flex;align-items:flex-end;gap:8px;margin-bottom:8px;">' +
+                        '<span style="font-size:26px;font-weight:700;color:' + color + ';">' + value + '</span>' +
+                        '<span style="font-size:13px;color:#64748b;margin-bottom:3px;">' + esc(unit) + '</span>' +
+                        '<span style="margin-left:auto;font-size:13px;color:#64748b;" id="dtab-trend-' + w.id + '">--</span>' +
+                    '</div>' +
+                    '<div style="height:48px;"><canvas id="dtab-spark-' + w.id + '" style="width:100%;height:100%;"></canvas></div>' +
+                '</div>';
+            });
+            html += '</div>';
+            el.innerHTML = html;
+
+            setTimeout(() => {
+                widgets.forEach(w => {
+                    const canvas = document.getElementById('dtab-spark-' + w.id);
+                    if (!canvas) return;
+                    const color = DASH_WIDGET_COLORS[widgets.indexOf(w) % DASH_WIDGET_COLORS.length];
+                    dashTabCharts['spark-' + w.id] = new Chart(canvas.getContext('2d'), {
+                        type: 'line',
+                        data: { labels: [], datasets: [{ data: [], borderColor: color, backgroundColor: color + '20', fill: true, tension: .4, pointRadius: 0, borderWidth: 2 }] },
+                        options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { display: false } }, scales: { x: { display: false }, y: { display: false } } }
+                    });
+                });
+            }, 50);
+        }
+
+        async function loadDashTabHistory(widgets) {
+            for (const w of widgets) {
+                if (!w.tag_name || !w.connection_name) continue;
+                const source = w.connection_name + '_' + w.tag_name;
+                try {
+                    const res = await fetch('/api/dashboards/history/' + encodeURIComponent(source) + '?minutes=60');
+                    const rows = await res.json();
+                    const chart = dashTabCharts['spark-' + w.id];
+                    if (chart && rows.length) {
+                        const last20 = rows.slice(-20);
+                        chart.data.labels = last20.map(r => new Date(r.timestamp).toLocaleTimeString());
+                        chart.data.datasets[0].data = last20.map(r => r.flow_rate);
+                        chart.update('none');
+                    }
+                    if (rows.length >= 2) {
+                        const current = rows[rows.length - 1].flow_rate;
+                        const prev = rows[rows.length - 2].flow_rate;
+                        const trend = current - prev;
+                        const trendEl = document.getElementById('dtab-trend-' + w.id);
+                        if (trendEl) {
+                            trendEl.innerHTML = (trend > 0.01 ? '&#9650;' : trend < -0.01 ? '&#9660;' : '&#9644;') + ' ' + Math.abs(trend).toFixed(1);
+                            trendEl.style.color = trend > 0.01 ? '#4ade80' : trend < -0.01 ? '#f87171' : '#64748b';
+                        }
+                    }
+                } catch {}
+            }
         }
 
         async function checkHealth() {
@@ -492,10 +575,9 @@
             }
         }
 
-        setInterval(updateDashboard, 2000);
         setInterval(checkHealth, 10000);
-        updateDashboard();
         checkHealth();
+        loadDefaultDashboardForTab();
 
         // ── Connections (shared) ──
         async function loadConnections(type) {
