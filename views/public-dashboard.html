@@ -326,9 +326,27 @@
                     const url = '/api/dashboards/history/' + encodeURIComponent(source) + '?minutes=' + mins;
                     const res = await fetch(url);
                     const rows = await res.json();
-                    console.log('Trend fetch:', source, 'status:', res.status, 'rows:', rows.length);
                     historyCache[w.id] = rows;
-                    ...
+
+                    if (sparkCharts[w.id] && rows.length) {
+                        const last20 = rows.slice(-20);
+                        sparkCharts[w.id].data.labels = last20.map(r => {
+                            const d = new Date(r.timestamp);
+                            return mins <= 60 ? d.toLocaleTimeString() : d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                        });
+                        sparkCharts[w.id].data.datasets[0].data = last20.map(r => r.flow_rate);
+                        sparkCharts[w.id].update('none');
+                    }
+                    if (rows.length >= 2) {
+                        const current = rows[rows.length - 1].flow_rate;
+                        const prev = rows[rows.length - 2].flow_rate;
+                        const trend = current - prev;
+                        const el = document.getElementById('trend-' + w.id);
+                        if (el) {
+                            el.className = 'wc-trend ' + (trend > 0.01 ? 'up' : trend < -0.01 ? 'down' : 'flat');
+                            el.innerHTML = (trend > 0 ? '&#9650;' : trend < 0 ? '&#9660;' : '&#9644;') + ' ' + Math.abs(trend).toFixed(1);
+                        }
+                    }
                 } catch (e) { console.error('Trend fetch error:', source, e); }
             }
             updateMainChart(trendWidgets, mins);
