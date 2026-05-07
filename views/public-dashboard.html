@@ -114,7 +114,8 @@
     <script>
         const WIDGET_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
         const WIDGET_ICONS = { well: '&#128167;', flow_meter: '&#128167;', pressure_meter: '&#9883;', level_meter: '&#9679;', gauge: '&#128200;', chart: '&#128202;' };
-        let slug = window.location.pathname.replace('/d/', '');
+        let slug = window.location.pathname.replace('/d/', '').replace(/^\//, '');
+        let isDefault = !slug;
         let dashboard = null;
         let sparkCharts = {};
         let mainChart = null;
@@ -133,7 +134,8 @@
 
         async function loadDashboard() {
             try {
-                const res = await fetch('/api/dashboards/slug/' + encodeURIComponent(slug));
+                const url = isDefault ? '/api/dashboards/default' : '/api/dashboards/slug/' + encodeURIComponent(slug);
+                const res = await fetch(url);
                 if (res.status === 401) {
                     document.getElementById('loginPrompt').style.display = 'flex';
                     document.getElementById('app').style.display = 'none';
@@ -296,7 +298,8 @@
         async function refreshLive() {
             if (!dashboard) return;
             try {
-                const res = await fetch('/api/dashboards/slug/' + encodeURIComponent(slug));
+                const url = isDefault ? '/api/dashboards/default' : '/api/dashboards/slug/' + encodeURIComponent(slug);
+                const res = await fetch(url);
                 if (!res.ok) return;
                 dashboard = await res.json();
                 const widgets = dashboard.widgets || [];

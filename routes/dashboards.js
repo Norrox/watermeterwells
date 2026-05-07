@@ -14,6 +14,21 @@ router.get('/list', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+router.get('/default', async (req, res, next) => {
+  try {
+    const dashboard = await dashboardModel.getDefault();
+    if (!dashboard) return res.status(404).json({ error: 'Ingen standard-dashboard satt' });
+    if (!dashboard.is_public) {
+      const token = req.cookies && req.cookies.session_token;
+      const { getSession } = require('../services/auth');
+      if (!token || !getSession(token)) {
+        return res.status(401).json({ error: 'Denna dashboard kräver inloggning' });
+      }
+    }
+    res.json(dashboard);
+  } catch (err) { next(err); }
+});
+
 router.get('/slug/:slug', async (req, res, next) => {
   try {
     const dashboard = await dashboardModel.getBySlug(req.params.slug);
@@ -59,6 +74,13 @@ router.put('/:id', requireAuth, async (req, res, next) => {
 router.delete('/:id', requireAuth, async (req, res, next) => {
   try {
     await dashboardModel.remove(req.params.id);
+    res.json({ success: true });
+  } catch (err) { next(err); }
+});
+
+router.post('/:id/set-default', requireAuth, async (req, res, next) => {
+  try {
+    await dashboardModel.setDefault(req.params.id);
     res.json({ success: true });
   } catch (err) { next(err); }
 });

@@ -1478,9 +1478,11 @@
                     el.innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div>Inga dashboards.' + (isAdmin ? ' Skapa en f&#246;r att b&#246;rja bygga visuella vyer.' : '') + '</div>';
                     return;
                 }
-                el.innerHTML = '<table><tr><th>Namn</th><th>Slug / URL</th><th>Publik</th><th>Widgetar</th><th>Skapad</th><th>Åtgärder</th></tr>' +
+                el.innerHTML = '<table><tr><th>Namn</th><th>Slug / URL</th><th>Publik</th><th>Standard</th><th>Widgetar</th><th>Skapad</th><th>Åtgärder</th></tr>' +
                     dashboards.map(d => {
                         const pubBadge = d.is_public ? '<span class="badge badge-green">Publik</span>' : '<span class="badge badge-gray">Privat</span>';
+                        const defaultBadge = d.is_default ? '<span class="badge badge-blue">Standard</span>' : '';
+                        const defaultBtn = isAdmin && !d.is_default ? '<button class="btn btn-sm btn-outline" onclick="setDefaultDashboard(' + d.id + ')">Gör till standard</button>' : '';
                         const adminBtns = isAdmin ?
                             '<button class="btn btn-sm btn-primary" onclick="showDashboardBuilder(' + d.id + ')">Bygg</button>' +
                             '<button class="btn btn-sm btn-outline" onclick="showDashboardForm(' + d.id + ')">Redigera</button>' +
@@ -1489,10 +1491,12 @@
                             '<td><strong>' + esc(d.name) + '</strong>' + (d.description ? '<br><span style="color:#64748b;font-size:12px;">' + esc(d.description) + '</span>' : '') + '</td>' +
                             '<td><a href="/d/' + d.slug + '" target="_blank" style="color:#60a5fa;">/d/' + d.slug + '</a></td>' +
                             '<td>' + pubBadge + '</td>' +
+                            '<td>' + defaultBadge + '</td>' +
                             '<td id="dw-count-' + d.id + '">--</td>' +
                             '<td style="color:#64748b;font-size:12px;">' + new Date(d.created_at).toLocaleDateString() + '</td>' +
                             '<td><div class="btn-group">' +
                                 '<a href="/d/' + d.slug + '" target="_blank" class="btn btn-sm btn-outline">Visa</a>' +
+                                defaultBtn +
                                 adminBtns +
                             '</div></td></tr>';
                     }).join('') + '</table>';
@@ -1541,6 +1545,12 @@
             if (!confirm('Ta bort denna dashboard och alla widgetar?')) return;
             await fetch('/api/dashboards/' + id, {method:'DELETE', headers:getAuthHeaders()});
             loadDashboardList();
+        }
+
+        async function setDefaultDashboard(id) {
+            const res = await fetch('/api/dashboards/' + id + '/set-default', {method:'POST', headers:getAuthHeaders()});
+            if (res.ok) loadDashboardList();
+            else { const d = await res.json(); alert(d.error); }
         }
 
         async function showDashboardBuilder(dashboardId) {

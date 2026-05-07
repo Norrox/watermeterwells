@@ -99,6 +99,7 @@ async function setupDatabase() {
     await conn.query(USERS_TABLE);
     await conn.query(DASHBOARDS_TABLE);
     await conn.query(DASHBOARD_WIDGETS_TABLE);
+    try { await conn.query("ALTER TABLE dashboards ADD COLUMN is_default BOOLEAN DEFAULT FALSE"); } catch {}
 
     const rows = await conn.query('SELECT COUNT(*) AS cnt FROM users');
     if (Number(rows[0].cnt) === 0) {

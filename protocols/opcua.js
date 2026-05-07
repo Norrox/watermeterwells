@@ -54,6 +54,67 @@ class OpcuaConnection {
         }
       });
 
+      const client = this.client;
+      const pendingTimers = [];
+
+      const connectTimeout = ms => new Promise((_, reject) => {
+        const id = setTimeout(() => {
+          client.disconnect().catch(() => {});
+          reject(new Error(`OPC UA-anslutningstimeout (${ms}ms) — kan inte nå ${this.config.url}`));
+        }, ms);
+        pendingTimers.push(id);
+      });
+
+      const clearPendingTimers = () => {
+        for (const id of pendingTimers) clearTimeout(id);
+        pendingTimers.length = 0;
+      };
+
+      await Promise.race([
+        client.connect(this.config.url),
+        connectTimeout(this.config.timeout)
+      ]);
+      clearPendingTimers();
+
+      const hasCredentials = this.config.username && this.config.username.trim();
+      if (hasCredentials) {
+        try {
+          this.session = await Promise.race([
+            client.createSession({
+              userName: this.config.username.trim(),
+              password: this.config.password || ''
+            }),
+            connectTimeout(this.config.timeout)
+          ]);
+          clearPendingTimers();
+        } catch (err) {
+          clearPendingTimers();
+          if (err.message && err.message.includes('user token policy')) {
+            this.session = await Promise.race([
+              client.createSession(),
+              connectTimeout(this.config.timeout)
+            ]);
+            clearPendingTimers();
+          } else {
+            throw err;
+          }
+        }
+      } else {
+        this.session = await Promise.race([
+          client.createSession(),
+          connectTimeout(this.config.timeout)
+        ]);
+        clearPendingTimers();
+      }
+
+      this._setStatus('connected');
+    } catch (err) {
+      this._setStatus('error', err.message);
+      throw err;
+    }
+  }
+      });
+
       const connectTimeout = ms => new Promise((_, reject) =>
         setTimeout(() => { this.client?.disconnect().catch(() => {}); reject(new Error(`OPC UA-anslutningstimeout (${ms}ms) — kan inte n&#229; ${this.config.url}`)); }, ms)
       );
