@@ -117,8 +117,8 @@ async function getWidgets(dashboardId) {
       'c.name AS connection_name, c.type AS connection_type, c.config AS connection_config, ' +
       't.name AS tag_name, t.config AS tag_config, t.last_value AS tag_last_value, t.last_read_at AS tag_last_read_at ' +
       'FROM dashboard_widgets w ' +
-      'LEFT JOIN connections c ON w.connection_id = c.id ' +
       'LEFT JOIN tags t ON w.tag_id = t.id ' +
+      'LEFT JOIN connections c ON c.id = COALESCE(w.connection_id, t.connection_id) ' +
       'WHERE w.dashboard_id = ? ORDER BY w.position, w.id',
       [dashboardId]
     );
@@ -230,8 +230,8 @@ async function getDefault() {
       'c.name AS connection_name, c.type AS connection_type, c.config AS connection_config, ' +
       't.name AS tag_name, t.config AS tag_config, t.last_value AS tag_last_value, t.last_read_at AS tag_last_read_at ' +
       'FROM dashboard_widgets w ' +
-      'LEFT JOIN connections c ON w.connection_id = c.id ' +
       'LEFT JOIN tags t ON w.tag_id = t.id ' +
+      'LEFT JOIN connections c ON c.id = COALESCE(w.connection_id, t.connection_id) ' +
       'WHERE w.dashboard_id = ? ORDER BY w.position, w.id',
       [dashboard.id]
     );

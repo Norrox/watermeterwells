@@ -136,6 +136,37 @@
 
         .tag-row { display: grid; grid-template-columns: auto 1fr auto auto auto auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #1e293b; }
         .tag-row:last-child { border-bottom: none; }
+
+        .scan-breadcrumb { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 12px; background: #0f172a; border-radius: 6px; font-size: 13px; }
+        .scan-breadcrumb span { color: #64748b; cursor: pointer; padding: 2px 6px; border-radius: 4px; }
+        .scan-breadcrumb span:hover { background: #334155; color: #e2e8f0; }
+        .scan-breadcrumb span.current { color: #60a5fa; cursor: default; font-weight: 600; }
+        .scan-breadcrumb span.current:hover { background: transparent; color: #60a5fa; }
+        .scan-breadcrumb .sep { color: #475569; cursor: default; padding: 0; }
+        .scan-breadcrumb .sep:hover { background: transparent; color: #475569; }
+
+        .scan-node-list { max-height: 400px; overflow-y: auto; border: 1px solid #334155; border-radius: 8px; background: #0f172a; }
+        .scan-node-row { display: grid; grid-template-columns: auto auto 1fr auto auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #1e293b80; cursor: pointer; transition: background .1s; }
+        .scan-node-row:last-child { border-bottom: none; }
+        .scan-node-row:hover { background: #1e293b; }
+        .scan-node-row .node-icon { width: 20px; text-align: center; font-size: 14px; }
+        .scan-node-row .node-icon.folder { color: #fbbf24; }
+        .scan-node-row .node-icon.variable { color: #60a5fa; }
+        .scan-node-row .node-icon.method { color: #a855f7; }
+        .scan-node-row .node-icon.other { color: #64748b; }
+        .scan-node-row .node-id { color: #64748b; font-family: monospace; font-size: 12px; }
+        .scan-node-row .node-name { font-size: 13px; }
+        .scan-node-row .node-class { color: #475569; font-size: 11px; text-transform: uppercase; }
+        .scan-node-row .node-value { color: #4ade80; font-family: monospace; font-size: 12px; }
+
+        .scan-selected-bar { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #1e293b; border: 1px solid #334155; border-radius: 8px; margin-top: 12px; }
+        .scan-selected-bar .count { font-weight: 600; color: #60a5fa; }
+        .scan-preview { background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 12px; margin-top: 8px; font-family: monospace; font-size: 13px; }
+
+        .scan-select-all { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #162032; border-bottom: 1px solid #334155; font-size: 13px; color: #94a3b8; cursor: pointer; }
+        .scan-select-all:hover { background: #1e293b; }
+
+        .scan-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px; color: #60a5fa; }
     </style>
 </head>
 <body>
@@ -647,6 +678,7 @@
                         '<button class="btn btn-sm btn-success" onclick="showTagForm(' + c.id + ',\'' + c.type + '\')">+ L&#228;gg till register</button>' +
                         '<button class="btn btn-sm btn-outline" onclick="testReadAll(' + c.id + ')">Testa alla</button>' +
                         (c.type === 'modbus' ? '<button class="btn btn-sm btn-outline" onclick="showBulkAddRegisters(' + c.id + ')">Snabb-l&#228;gg till flera</button>' : '') +
+                        (c.type === 'opcua' ? '<button class="btn btn-sm btn-primary" onclick="showOpcuaScanner(' + c.id + ')">Scanna noder</button>' : '') +
                     '</div>' +
                     (tagsHtml ?
                         '<div style="display:grid;grid-template-columns:auto 1fr auto auto auto auto;gap:8px;align-items:center;padding:6px 12px;border-bottom:1px solid #334155;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.3px;">' +
@@ -1527,6 +1559,346 @@
                     el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">Fel: ' + esc(data.error) + '</div>';
                 }
             } catch (e) { el.innerHTML = '<div class="test-result" style="border-color:#ef4444;">' + esc(e.message) + '</div>'; }
+        }
+
+        let _scanConnId = null;
+        let _scanConnConfig = null;
+        let _scanBreadcrumb = [];
+        let _scanSelectedNodes = [];
+        let _scanCurrentNodes = [];
+        let _scanPreviewCache = {};
+
+        async function showOpcuaScanner(connId) {
+            _scanConnId = connId;
+            _scanBreadcrumb = [{nodeId: 'RootFolder', name: 'Root'}];
+            _scanSelectedNodes = [];
+            _scanCurrentNodes = [];
+            _scanPreviewCache = {};
+
+            const res = await fetch('/api/admin/connections/' + connId, {headers: getAuthHeaders()});
+            if (!res.ok) { alert('Kunde inte h&#228;mta anslutning'); return; }
+            const conn = await res.json();
+            _scanConnConfig = typeof conn.config === 'string' ? JSON.parse(conn.config) : conn.config;
+
+            showModal(
+                '<h3>Scanna OPC UA-noder — ' + esc(conn.name) + '</h3>' +
+                '<p style="color:#64748b;font-size:12px;margin-bottom:12px;">Bl&#228;ddra i OPC UA-serverns nodtr&#228;d och v&#228;lj noder att l&#228;gga till som taggar.</p>' +
+                '<div class="form-row">' +
+                    '<div class="form-group" style="flex:2;"><label>Start-NodeId</label><input id="scan-startNode" value="RootFolder" placeholder="T.ex. ns=2;s=Devices eller RootFolder"></div>' +
+                    '<div class="form-group" style="flex:0;display:flex;align-items:flex-end;">' +
+                        '<button class="btn btn-primary" onclick="scanBrowseFromInput()">Bl&#228;ddra</button>' +
+                    '</div>' +
+                '</div>' +
+                '<div id="scan-breadcrumb" class="scan-breadcrumb"></div>' +
+                '<div id="scan-status" style="display:none;"></div>' +
+                '<div id="scan-nodes" class="scan-node-list">' +
+                    '<div style="padding:40px;text-align:center;color:#64748b;">Klicka "Bl&#228;ddra" f&#246;r att se noder</div>' +
+                '</div>' +
+                '<div id="scan-preview"></div>' +
+                '<div id="scan-selected-bar" class="scan-selected-bar" style="display:none;">' +
+                    '<span class="count" id="scan-selected-count">0 valda</span>' +
+                    '<button class="btn btn-sm btn-outline" onclick="scanClearSelection()">Rensa val</button>' +
+                    '<div style="flex:1;"></div>' +
+                    '<button class="btn btn-success" id="scan-add-btn" onclick="addSelectedOpcuaNodes()">L&#228;gg till valda</button>' +
+                '</div>' +
+                '<div id="scan-result" style="margin-top:8px;"></div>' +
+                '<div class="modal-actions" style="margin-top:16px;"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>'
+            );
+
+            browseOpcuaNodes('RootFolder');
+        }
+
+        function scanBrowseFromInput() {
+            const nodeId = document.getElementById('scan-startNode').value.trim() || 'RootFolder';
+            _scanBreadcrumb = [{nodeId: nodeId, name: nodeId === 'RootFolder' ? 'Root' : nodeId}];
+            _scanSelectedNodes = [];
+            _scanPreviewCache = {};
+            browseOpcuaNodes(nodeId);
+        }
+
+        async function browseOpcuaNodes(nodeId) {
+            const statusEl = document.getElementById('scan-status');
+            const nodesEl = document.getElementById('scan-nodes');
+            if (!nodesEl) return;
+
+            statusEl.style.display = 'flex';
+            statusEl.className = 'scan-loading';
+            statusEl.innerHTML = 'Bl&#228;ddrar...';
+            nodesEl.innerHTML = '';
+
+            try {
+                const res = await fetchWithTimeout('/api/admin/test/opcua-browse', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        url: _scanConnConfig.url,
+                        timeout: _scanConnConfig.timeout || 5000,
+                        securityMode: _scanConnConfig.securityMode || 'None',
+                        securityPolicy: _scanConnConfig.securityPolicy || 'None',
+                        username: _scanConnConfig.username || null,
+                        password: _scanConnConfig.password || null,
+                        nodeId: nodeId
+                    })
+                });
+                const data = await res.json();
+
+                if (!data.success) {
+                    statusEl.className = '';
+                    statusEl.innerHTML = '<div style="color:#f87171;padding:12px;">&#10008; Fel: ' + esc(data.error) + '</div>';
+                    nodesEl.innerHTML = '';
+                    return;
+                }
+
+                _scanCurrentNodes = data.nodes || [];
+                statusEl.style.display = 'none';
+                renderScanBreadcrumb();
+                renderScanNodes();
+            } catch (e) {
+                statusEl.className = '';
+                statusEl.innerHTML = '<div style="color:#f87171;padding:12px;">&#10008; N&#228;tverksfel: ' + esc(e.message) + '</div>';
+            }
+        }
+
+        function renderScanBreadcrumb() {
+            const el = document.getElementById('scan-breadcrumb');
+            if (!el) return;
+            let html = '';
+            _scanBreadcrumb.forEach((item, i) => {
+                const isLast = i === _scanBreadcrumb.length - 1;
+                if (i > 0) html += '<span class="sep">/</span>';
+                html += '<span' + (isLast ? ' class="current"' : ' onclick="scanNavigateTo(' + i + ')"') + '>' + esc(item.name) + '</span>';
+            });
+            el.innerHTML = html;
+        }
+
+        function scanNavigateTo(index) {
+            _scanBreadcrumb = _scanBreadcrumb.slice(0, index + 1);
+            browseOpcuaNodes(_scanBreadcrumb[index].nodeId);
+        }
+
+        function renderScanNodes() {
+            const el = document.getElementById('scan-nodes');
+            if (!el) return;
+
+            const nodes = _scanCurrentNodes;
+            if (!nodes.length) {
+                el.innerHTML = '<div style="padding:30px;text-align:center;color:#64748b;">Inga barnnoder hittades</div>';
+                return;
+            }
+
+            const folders = nodes.filter(n => isFolderNode(n));
+            const variables = nodes.filter(n => !isFolderNode(n));
+            const sorted = [...folders, ...variables];
+
+            const hasVariables = sorted.some(n => !isFolderNode(n));
+
+            let html = '';
+            if (hasVariables) {
+                html += '<div class="scan-select-all" onclick="scanToggleSelectAll()">' +
+                    '<input type="checkbox" id="scan-select-all-cb" onclick="event.stopPropagation(); scanToggleSelectAll()">' +
+                    '<span>V&#228;lj alla variabler</span></div>';
+            }
+
+            sorted.forEach((node, i) => {
+                const isFolder = isFolderNode(node);
+                const isSelected = _scanSelectedNodes.some(n => n.nodeId === node.nodeId);
+                const iconClass = isFolder ? 'folder' : 'variable';
+                const icon = isFolder ? '&#128193;' : '&#128200;';
+                const nodeIdShort = node.nodeId.length > 50 ? node.nodeId.substring(0, 47) + '...' : node.nodeId;
+                const previewKey = node.nodeId;
+                const previewVal = _scanPreviewCache[previewKey];
+
+                html += '<div class="scan-node-row" data-index="' + i + '">' +
+                    (!isFolder ? '<input type="checkbox" class="scan-cb" data-node-id="' + esc(node.nodeId) + '"' + (isSelected ? ' checked' : '') + ' onclick="event.stopPropagation(); scanToggleNode(\'' + escAttr(node.nodeId) + '\', this.checked)">' : '<span style="width:14px;"></span>') +
+                    '<span class="node-icon ' + iconClass + '">' + icon + '</span>' +
+                    '<div class="node-name">' +
+                        '<strong>' + esc(node.displayName || node.browseName) + '</strong>' +
+                        '<div class="node-id">' + esc(nodeIdShort) + '</div>' +
+                    '</div>' +
+                    '<span class="node-class">' + esc(node.nodeClass) + '</span>' +
+                    (previewVal !== undefined ? '<span class="node-value">' + esc(String(previewVal)) + '</span>' : '<span class="node-value"></span>') +
+                '</div>';
+            });
+
+            el.innerHTML = html;
+
+            el.querySelectorAll('.scan-node-row').forEach(row => {
+                row.addEventListener('click', function(e) {
+                    if (e.target.type === 'checkbox') return;
+                    const idx = parseInt(this.dataset.index);
+                    const node = sorted[idx];
+                    if (isFolderNode(node)) {
+                        _scanBreadcrumb.push({nodeId: node.nodeId, name: node.displayName || node.browseName});
+                        browseOpcuaNodes(node.nodeId);
+                    } else {
+                        previewOpcuaNode(node.nodeId);
+                    }
+                });
+            });
+
+            updateScanSelectedBar();
+        }
+
+        function isFolderNode(node) {
+            const cls = (node.nodeClass || '').toLowerCase();
+            const name = (node.browseName || '').toLowerCase();
+            return cls === 'object' || cls === 'objecttype' || cls === 'foldertype' ||
+                   name.includes('folder') || name.includes('server') || name.includes('objects');
+        }
+
+        function scanToggleNode(nodeId, checked) {
+            if (checked) {
+                if (!_scanSelectedNodes.some(n => n.nodeId === nodeId)) {
+                    const node = _scanCurrentNodes.find(n => n.nodeId === nodeId);
+                    if (node) _scanSelectedNodes.push(node);
+                }
+            } else {
+                _scanSelectedNodes = _scanSelectedNodes.filter(n => n.nodeId !== nodeId);
+            }
+            updateScanSelectedBar();
+        }
+
+        function scanToggleSelectAll() {
+            const variables = _scanCurrentNodes.filter(n => !isFolderNode(n));
+            const allSelected = variables.every(v => _scanSelectedNodes.some(s => s.nodeId === v.nodeId));
+
+            if (allSelected) {
+                const varIds = new Set(variables.map(v => v.nodeId));
+                _scanSelectedNodes = _scanSelectedNodes.filter(n => !varIds.has(n.nodeId));
+            } else {
+                variables.forEach(v => {
+                    if (!_scanSelectedNodes.some(s => s.nodeId === v.nodeId)) {
+                        _scanSelectedNodes.push(v);
+                    }
+                });
+            }
+
+            const cb = document.getElementById('scan-select-all-cb');
+            if (cb) cb.checked = !allSelected;
+
+            document.querySelectorAll('.scan-cb').forEach(checkbox => {
+                checkbox.checked = !allSelected;
+            });
+
+            updateScanSelectedBar();
+        }
+
+        function scanClearSelection() {
+            _scanSelectedNodes = [];
+            document.querySelectorAll('.scan-cb').forEach(cb => { cb.checked = false; });
+            const cb = document.getElementById('scan-select-all-cb');
+            if (cb) cb.checked = false;
+            updateScanSelectedBar();
+        }
+
+        function updateScanSelectedBar() {
+            const bar = document.getElementById('scan-selected-bar');
+            const countEl = document.getElementById('scan-selected-count');
+            const addBtn = document.getElementById('scan-add-btn');
+            if (!bar) return;
+
+            bar.style.display = _scanSelectedNodes.length > 0 ? 'flex' : 'none';
+            countEl.textContent = _scanSelectedNodes.length + ' vald' + (_scanSelectedNodes.length !== 1 ? 'a' : '');
+            addBtn.textContent = 'L\u00e4gg till ' + _scanSelectedNodes.length + ' vald' + (_scanSelectedNodes.length !== 1 ? 'a' : '');
+        }
+
+        async function previewOpcuaNode(nodeId) {
+            const previewEl = document.getElementById('scan-preview');
+            if (!previewEl) return;
+            previewEl.innerHTML = '<div class="scan-preview" style="color:#60a5fa;">L&#228;ser v&#228;rde...</div>';
+
+            try {
+                const res = await fetchWithTimeout('/api/admin/test/opcua-read', {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify({
+                        url: _scanConnConfig.url,
+                        timeout: _scanConnConfig.timeout || 5000,
+                        securityMode: _scanConnConfig.securityMode || 'None',
+                        securityPolicy: _scanConnConfig.securityPolicy || 'None',
+                        username: _scanConnConfig.username || null,
+                        password: _scanConnConfig.password || null,
+                        nodeIds: [nodeId]
+                    })
+                });
+                const data = await res.json();
+
+                if (data.success && data.results && data.results[0]) {
+                    const r = data.results[0];
+                    if (r.success) {
+                        _scanPreviewCache[nodeId] = r.value;
+                        const ts = r.sourceTimestamp ? new Date(r.sourceTimestamp).toLocaleTimeString() : '';
+                        previewEl.innerHTML = '<div class="scan-preview">' +
+                            '<strong style="color:#60a5fa;">' + esc(nodeId) + '</strong><br>' +
+                            'V&#228;rde: <span style="color:#4ade80;">' + esc(String(r.value)) + '</span>' +
+                            (r.statusCode ? ' <span style="color:#64748b;">(' + esc(r.statusCode) + ')</span>' : '') +
+                            (ts ? '<br>Tid: <span style="color:#94a3b8;">' + esc(ts) + '</span>' : '') +
+                        '</div>';
+
+                        const row = document.querySelector('.scan-cb[data-node-id="' + CSS.escape(nodeId) + '"]');
+                        if (row) {
+                            const valueSpan = row.closest('.scan-node-row').querySelector('.node-value');
+                            if (valueSpan) valueSpan.textContent = String(r.value);
+                        }
+                    } else {
+                        previewEl.innerHTML = '<div class="scan-preview" style="color:#f87171;">Kunde inte l&#228;sa: ' + esc(r.error || 'Ok&#228;nt fel') + '</div>';
+                    }
+                } else {
+                    previewEl.innerHTML = '<div class="scan-preview" style="color:#f87171;">Fel: ' + esc(data.error || 'Ok&#228;nt') + '</div>';
+                }
+            } catch (e) {
+                previewEl.innerHTML = '<div class="scan-preview" style="color:#f87171;">N&#228;tverksfel: ' + esc(e.message) + '</div>';
+            }
+        }
+
+        async function addSelectedOpcuaNodes() {
+            const btn = document.getElementById('scan-add-btn');
+            const resultEl = document.getElementById('scan-result');
+            if (!_scanSelectedNodes.length) return;
+
+            btn.disabled = true;
+            btn.textContent = 'L&#228;gger till...';
+            resultEl.innerHTML = '<div style="color:#60a5fa;">L&#228;gger till ' + _scanSelectedNodes.length + ' taggar...</div>';
+
+            let ok = 0, fail = 0;
+            for (const node of _scanSelectedNodes) {
+                const name = node.displayName || node.browseName || node.nodeId;
+                try {
+                    const res = await fetch('/api/admin/connections/' + _scanConnId + '/tags', {
+                        method: 'POST',
+                        headers: getAuthHeaders(),
+                        body: JSON.stringify({
+                            name: name,
+                            enabled: true,
+                            config: {
+                                nodeId: node.nodeId,
+                                dataType: 'auto',
+                                samplingInterval: 1000,
+                                scalingMode: 'direct',
+                                decimals: 2,
+                                unitMultiplier: 1,
+                                logToDatabase: true,
+                                logInterval: 0,
+                                unit: ''
+                            }
+                        })
+                    });
+                    if (res.ok) ok++; else fail++;
+                } catch { fail++; }
+            }
+
+            resultEl.innerHTML = '<div style="color:' + (fail ? '#fbbf24' : '#4ade80') + ';">' +
+                '&#10004; Klart! ' + ok + ' taggar tillagda' + (fail ? ', ' + fail + ' misslyckades' : '') + '</div>';
+
+            _scanSelectedNodes = [];
+            updateScanSelectedBar();
+            btn.disabled = false;
+
+            setTimeout(() => { closeModal(); loadConnections('opcua'); }, 1500);
+        }
+
+        function escAttr(s) {
+            return s.replace(/&/g, '&amp;').replace(/'/g, '&#39;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
 
         function showModbusTestPanel() {
