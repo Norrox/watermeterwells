@@ -57,23 +57,32 @@ class OpcuaConnection {
         setTimeout(() => { this.client?.disconnect().catch(() => {}); reject(new Error(`OPC UA-anslutningstimeout (${ms}ms) — kan inte n&#229; ${this.config.url}`)); }, ms)
       );
 
+      await Promise.race([
+        this.client.connect(this.config.url),
+        connectTimeout(this.config.timeout)
+      ]);
+
       const hasCredentials = this.config.username && this.config.username.trim();
-        await Promise.race([
-          this.client.connect(this.config.url),
-          connectTimeout(this.config.timeout)
-        ]);
-        this.session = await Promise.race([
-          this.client.createSession({
-            userName: this.config.username,
-            password: this.config.password
-          }),
-          connectTimeout(this.config.timeout)
-        ]);
+      if (hasCredentials) {
+        try {
+          this.session = await Promise.race([
+            this.client.createSession({
+              userName: this.config.username.trim(),
+              password: this.config.password || ''
+            }),
+            connectTimeout(this.config.timeout)
+          ]);
+        } catch (err) {
+          if (err.message && err.message.includes('user token policy')) {
+            this.session = await Promise.race([
+              this.client.createSession(),
+              connectTimeout(this.config.timeout)
+            ]);
+          } else {
+            throw err;
+          }
+        }
       } else {
-        await Promise.race([
-          this.client.connect(this.config.url),
-          connectTimeout(this.config.timeout)
-        ]);
         this.session = await Promise.race([
           this.client.createSession(),
           connectTimeout(this.config.timeout)
