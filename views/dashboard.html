@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Industriell Logger - Dashboard & Admin</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
@@ -87,6 +89,23 @@
         .login-box .form-group { text-align: left; }
         .login-box .btn { width: 100%; margin-top: 8px; }
         .login-error { color: #f87171; font-size: 13px; margin-top: 8px; min-height: 20px; }
+
+        .map-picker-modal { position: relative; }
+        #mapPickerMap { height: 400px; border-radius: 8px; margin-bottom: 12px; z-index: 1; }
+        .marker-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #1e293b; flex-wrap: wrap; }
+        .marker-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; min-width: 200px; font-size: 13px; }
+        .marker-row input[type="number"] { width: 90px; padding: 5px 8px; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: #e2e8f0; font-size: 12px; }
+        .marker-row input[type="number"]:focus { outline: none; border-color: #3b82f6; }
+        .marker-row .pick-btn { padding: 4px 8px; background: #374151; border: 1px solid #475569; border-radius: 4px; color: #94a3b8; cursor: pointer; font-size: 11px; white-space: nowrap; }
+        .marker-row .pick-btn:hover { background: #4b5563; color: #e2e8f0; }
+        .marker-header { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; margin-bottom: 4px; color: #64748b; font-size: 11px; text-transform: uppercase; }
+        .marker-header span:nth-child(1) { min-width: 200px; }
+        .marker-header span:nth-child(2) { width: 90px; }
+        .marker-header span:nth-child(3) { width: 90px; }
+        .dw-map-section { display: none; background: #0f172a; border: 1px solid #334155; border-radius: 8px; padding: 14px; margin-bottom: 12px; }
+        .dw-map-section.show { display: block; }
+        .dw-generic-section.show { display: block; }
+        .dw-generic-section { display: block; }
 
         .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
         .status-dot.connected { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
@@ -324,6 +343,10 @@
     <!-- MODAL -->
     <div id="modalOverlay" class="modal-overlay">
         <div class="modal" id="modalContent"></div>
+    </div>
+
+    <div id="mapPickerOverlay" class="modal-overlay" style="z-index:1100;">
+        <div class="modal" id="mapPickerContent"></div>
     </div>
 
     <script>
@@ -812,6 +835,15 @@
         function closeModal() { document.getElementById('modalOverlay').classList.remove('show'); }
         document.getElementById('modalOverlay').onclick = e => { if (e.target === e.currentTarget) closeModal(); };
 
+        function showMapPickerModal(html) {
+            document.getElementById('mapPickerContent').innerHTML = html;
+            document.getElementById('mapPickerOverlay').classList.add('show');
+        }
+        function closeMapPickerOverlay() {
+            document.getElementById('mapPickerOverlay').classList.remove('show');
+        }
+        document.getElementById('mapPickerOverlay').onclick = e => { if (e.target === e.currentTarget) closeMapPickerOverlay(); };
+
         // ── OPC UA Forms ──
         async function showOpcuaForm(editId) {
             let conn = null, tags = [];
@@ -843,6 +875,10 @@
                     '<div class="form-group"><label>L&#246;senord (frivilligt)</label><input type="password" id="f-password" value="' + esc(cfg.password || '') + '"></div>' +
                 '</div>' +
                 '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="f-timeout" value="' + (cfg.timeout || 5000) + '" step="1000" min="1000"><small style="color:#64748b;">Standard 5000ms. Anslutningen avbryts om servern inte svarar inom denna tid.</small></div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Latitud</label><input type="number" step="any" id="f-lat" value="' + (cfg.lat || '') + '" placeholder="T.ex. 59.3293"></div>' +
+                    '<div class="form-group"><label>Longitud</label><input type="number" step="any" id="f-lng" value="' + (cfg.lng || '') + '" placeholder="T.ex. 18.0686"></div>' +
+                '</div>' +
                 '<div class="form-group"><label><input type="checkbox" id="f-enabled" ' + (!conn || conn.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
                 '<div class="modal-actions">' +
                     '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
@@ -862,7 +898,9 @@
                     securityMode: document.getElementById('f-securityMode').value,
                     securityPolicy: document.getElementById('f-securityPolicy').value,
                     username: document.getElementById('f-username').value || null,
-                    password: document.getElementById('f-password').value || null
+                    password: document.getElementById('f-password').value || null,
+                    lat: document.getElementById('f-lat').value ? parseFloat(document.getElementById('f-lat').value) : null,
+                    lng: document.getElementById('f-lng').value ? parseFloat(document.getElementById('f-lng').value) : null
                 }
             };
             const url = editId ? '/api/admin/connections/' + editId : '/api/admin/connections';
@@ -889,7 +927,10 @@
                 '</div>' +
                 '<div class="form-row">' +
                     '<div class="form-group"><label>Unit ID (Slave ID)</label><input type="number" id="f-unitId" value="' + (cfg.unitId || 1) + '" min="1" max="247"></div>' +
-                    '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="f-timeout" value="' + (cfg.timeout || 5000) + '"></div>' +
+                '<div class="form-group"><label>Timeout (ms)</label><input type="number" id="f-timeout" value="' + (cfg.timeout || 5000) + '"></div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Latitud</label><input type="number" step="any" id="f-lat" value="' + (cfg.lat || '') + '" placeholder="T.ex. 59.3293"></div>' +
+                    '<div class="form-group"><label>Longitud</label><input type="number" step="any" id="f-lng" value="' + (cfg.lng || '') + '" placeholder="T.ex. 18.0686"></div>' +
                 '</div>' +
                 '<div class="form-group"><label><input type="checkbox" id="f-enabled" ' + (!conn || conn.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
                 '<div class="modal-actions">' +
@@ -908,7 +949,9 @@
                     host: document.getElementById('f-host').value,
                     port: parseInt(document.getElementById('f-port').value) || 502,
                     unitId: parseInt(document.getElementById('f-unitId').value) || 1,
-                    timeout: parseInt(document.getElementById('f-timeout').value) || 5000
+                    timeout: parseInt(document.getElementById('f-timeout').value) || 5000,
+                    lat: document.getElementById('f-lat').value ? parseFloat(document.getElementById('f-lat').value) : null,
+                    lng: document.getElementById('f-lng').value ? parseFloat(document.getElementById('f-lng').value) : null
                 }
             };
             const url = editId ? '/api/admin/connections/' + editId : '/api/admin/connections';
@@ -1066,6 +1109,24 @@
                         '<div class="form-group"><label>Antal decimaler</label><input type="number" min="0" max="10" id="t-decimals" value="' + (cfg.decimals !== undefined ? cfg.decimals : 2) + '"></div>' +
                         '<div class="form-group"><label>Enhetsmultiplikator</label><input type="number" step="0.0001" id="t-unitMultiplier" value="' + (cfg.unitMultiplier || 1) + '"></div>' +
                     '</div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px;">V&#228;rdeformatering</div>' +
+                        '<div class="form-row">' +
+                            '<div class="form-group">' +
+                                '<label>Skalningsl&#228;ge</label>' +
+                                '<select id="t-scalingMode" onchange="updateScalingFields()">' +
+                                    '<option value="linear"' + ((cfg.scalingMode||'linear')==='linear'?' selected':'') + '>Line&#228;r (scaling + offset)</option>' +
+                                    '<option value="direct"' + (cfg.scalingMode==='direct'?' selected':'') + '>Direkt (endast avrunda)</option>' +
+                                    '<option value="4-20mA"' + (cfg.scalingMode==='4-20mA'?' selected':'') + '>4-20mA &#8594; Fl&#246;de</option>' +
+                                    '<option value="0-10V"' + (cfg.scalingMode==='0-10V'?' selected':'') + '>0-10V &#8594; Fl&#246;de</option>' +
+                                    '<option value="builder"' + (cfg.scalingMode==='builder'?' selected':'') + '>Formelbyggare</option>' +
+                                    '<option value="custom"' + (cfg.scalingMode==='custom'?' selected':'') + '>Custom uttryck (JS)</option>' +
+                                '</select>' +
+                            '</div>' +
+                        '</div>' +
+                        '<div id="t-scaling-fields" style="margin-top:8px;"></div>' +
+                        '<div id="t-formula-preview" style="background:#0f172a;border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:#64748b;"></div>' +
+                    '</div>' +
                     '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
                     '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
                         '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Databasloggning</div>' +
@@ -1095,6 +1156,7 @@
                     '</div>'
                 );
                 toggleLogInterval();
+                updateScalingFields();
             }
         }
 
@@ -1361,12 +1423,29 @@
                     unit: document.getElementById('t-unit').value
                 };
             } else {
+                const scalingMode = document.getElementById('t-scalingMode').value;
                 config = {
                     nodeId: document.getElementById('t-nodeId').value,
                     dataType: document.getElementById('t-dataType').value || 'auto',
                     samplingInterval: parseInt(document.getElementById('t-samplingInterval').value) || 1000,
+                    scalingMode: scalingMode,
                     decimals: parseInt(document.getElementById('t-decimals').value) || 0,
                     unitMultiplier: parseFloat(document.getElementById('t-unitMultiplier').value) || 1,
+                    scalingFactor: parseFloat(getFieldValue('t-scaling')) || 1,
+                    offset: parseFloat(getFieldValue('t-offset')) || 0,
+                    signalMin: parseFloat(getFieldValue('t-signalMin')) || null,
+                    signalMax: parseFloat(getFieldValue('t-signalMax')) || null,
+                    scaleMin: parseFloat(getFieldValue('t-scaleMin')) || null,
+                    scaleMax: parseFloat(getFieldValue('t-scaleMax')) || null,
+                    divide: parseFloat(getFieldValue('t-divide')) || 1,
+                    subtract: parseFloat(getFieldValue('t-subtract')) || 0,
+                    multiply: parseFloat(getFieldValue('t-multiply')) || 1,
+                    add: parseFloat(getFieldValue('t-add')) || 0,
+                    clampMinEnabled: document.getElementById('t-clampMinEnabled') ? document.getElementById('t-clampMinEnabled').checked : false,
+                    clampMin: parseFloat(getFieldValue('t-clampMin')) || 0,
+                    clampMaxEnabled: document.getElementById('t-clampMaxEnabled') ? document.getElementById('t-clampMaxEnabled').checked : false,
+                    clampMax: parseFloat(getFieldValue('t-clampMax')) || 0,
+                    customExpression: getFieldValue('t-customExpression') || null,
                     logToDatabase: document.getElementById('t-logToDatabase').checked,
                     logInterval: getLogInterval(),
                     unit: document.getElementById('t-unit').value
@@ -1635,6 +1714,194 @@
             else { const d = await res.json(); alert(d.error); }
         }
 
+        function buildMarkerRows(connections) {
+            let html = '';
+            let idx = 0;
+            for (const c of connections) {
+                const cfg = c.config || {};
+                const connLat = cfg.lat || '';
+                const connLng = cfg.lng || '';
+                for (const t of (c.tags || [])) {
+                    html += '<div class="marker-row">' +
+                        '<label><input type="checkbox" id="dw-mk-' + idx + '-enabled" data-conn-id="' + c.id + '" data-tag-id="' + t.id + '"> ' +
+                        esc(c.name) + ' / ' + esc(t.name) + '</label>' +
+                        '<input type="number" step="any" id="dw-mk-' + idx + '-lat" value="' + connLat + '" placeholder="Lat">' +
+                        '<input type="number" step="any" id="dw-mk-' + idx + '-lng" value="' + connLng + '" placeholder="Lng">' +
+                        '<button class="pick-btn" onclick="openMapPicker(' + idx + ')">Placera p&#229; karta</button>' +
+                        '</div>';
+                    idx++;
+                }
+            }
+            return html || '<p style="color:#64748b;font-size:12px;">Inga anslutningar med taggar. Skapa en anslutning f&#246;rst.</p>';
+        }
+
+        let _mapPickerMap = null;
+        let _mapPickerIdx = null;
+        let _mapPickerMarker = null;
+
+        function toggleWidgetFormFields() {
+            const type = document.getElementById('dw-type').value;
+            const generic = document.getElementById('dw-generic-section');
+            const map = document.getElementById('dw-map-section');
+            if (type === 'map') {
+                if (generic) generic.style.display = 'none';
+                if (map) map.classList.add('show');
+            } else {
+                if (generic) generic.style.display = 'block';
+                if (map) map.classList.remove('show');
+            }
+        }
+
+        function openMapPicker(idx) {
+            _mapPickerIdx = idx;
+            const latEl = document.getElementById('dw-mk-' + idx + '-lat');
+            const lngEl = document.getElementById('dw-mk-' + idx + '-lng');
+            const lat = parseFloat(latEl.value) || 59.3;
+            const lng = parseFloat(lngEl.value) || 18.1;
+
+            showMapPickerModal(
+                '<h3>Placera mark&#246;r p&#229; kartan</h3>' +
+                '<p style="color:#64748b;margin-bottom:8px;font-size:12px;">Klicka p&#229; kartan f&#246;r att s&#228;tta position.</p>' +
+                '<div id="mapPickerMap"></div>' +
+                '<div style="margin-top:8px;color:#94a3b8;font-size:13px;">' +
+                    'Lat: <strong id="mp-lat">' + lat.toFixed(4) + '</strong> ' +
+                    'Lng: <strong id="mp-lng">' + lng.toFixed(4) + '</strong>' +
+                '</div>' +
+                '<div class="modal-actions" style="margin-top:12px;">' +
+                    '<button class="btn btn-secondary" onclick="closeMapPicker()">Avbryt</button>' +
+                    '<button class="btn btn-primary" onclick="confirmMapPicker()">Anv&#228;nd position</button>' +
+                '</div>'
+            );
+
+            setTimeout(() => {
+                const mapEl = document.getElementById('mapPickerMap');
+                if (!mapEl) return;
+                _mapPickerMap = L.map(mapEl).setView([lat, lng], 9);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap'
+                }).addTo(_mapPickerMap);
+                _mapPickerMarker = L.marker([lat, lng], {draggable: true}).addTo(_mapPickerMap);
+                _mapPickerMap.on('click', function(e) {
+                    _mapPickerMarker.setLatLng(e.latlng);
+                    document.getElementById('mp-lat').textContent = e.latlng.lat.toFixed(4);
+                    document.getElementById('mp-lng').textContent = e.latlng.lng.toFixed(4);
+                });
+                _mapPickerMarker.on('dragend', function(e) {
+                    const ll = _mapPickerMarker.getLatLng();
+                    document.getElementById('mp-lat').textContent = ll.lat.toFixed(4);
+                    document.getElementById('mp-lng').textContent = ll.lng.toFixed(4);
+                });
+            }, 100);
+        }
+
+        function confirmMapPicker() {
+            const latEl = document.getElementById('dw-mk-' + _mapPickerIdx + '-lat');
+            const lngEl = document.getElementById('dw-mk-' + _mapPickerIdx + '-lng');
+            const lat = document.getElementById('mp-lat').textContent;
+            const lng = document.getElementById('mp-lng').textContent;
+            if (latEl) latEl.value = lat;
+            if (lngEl) lngEl.value = lng;
+            closeMapPicker();
+        }
+
+        function closeMapPicker() {
+            if (_mapPickerMap) { _mapPickerMap.remove(); _mapPickerMap = null; }
+            _mapPickerMarker = null;
+            _mapPickerIdx = null;
+            closeMapPickerOverlay();
+        }
+
+        function openEditMapPicker(idx) {
+            _mapPickerIdx = idx;
+            const latEl = document.getElementById('em-mk-' + idx + '-lat');
+            const lngEl = document.getElementById('em-mk-' + idx + '-lng');
+            const lat = parseFloat(latEl ? latEl.value : 0) || 59.3;
+            const lng = parseFloat(lngEl ? lngEl.value : 0) || 18.1;
+
+            showMapPickerModal(
+                '<h3>Placera mark&#246;r p&#229; kartan</h3>' +
+                '<p style="color:#64748b;margin-bottom:8px;font-size:12px;">Klicka p&#229; kartan f&#246;r att s&#228;tta position.</p>' +
+                '<div id="mapPickerMap"></div>' +
+                '<div style="margin-top:8px;color:#94a3b8;font-size:13px;">' +
+                    'Lat: <strong id="mp-lat">' + lat.toFixed(4) + '</strong> ' +
+                    'Lng: <strong id="mp-lng">' + lng.toFixed(4) + '</strong>' +
+                '</div>' +
+                '<div class="modal-actions" style="margin-top:12px;">' +
+                    '<button class="btn btn-secondary" onclick="closeMapPicker()">Avbryt</button>' +
+                    '<button class="btn btn-primary" onclick="confirmEditMapPicker()">Anv&#228;nd position</button>' +
+                '</div>'
+            );
+
+            setTimeout(() => {
+                const mapEl = document.getElementById('mapPickerMap');
+                if (!mapEl) return;
+                _mapPickerMap = L.map(mapEl).setView([lat, lng], 9);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; OpenStreetMap'
+                }).addTo(_mapPickerMap);
+                _mapPickerMarker = L.marker([lat, lng], {draggable: true}).addTo(_mapPickerMap);
+                _mapPickerMap.on('click', function(e) {
+                    _mapPickerMarker.setLatLng(e.latlng);
+                    document.getElementById('mp-lat').textContent = e.latlng.lat.toFixed(4);
+                    document.getElementById('mp-lng').textContent = e.latlng.lng.toFixed(4);
+                });
+                _mapPickerMarker.on('dragend', function(e) {
+                    const ll = _mapPickerMarker.getLatLng();
+                    document.getElementById('mp-lat').textContent = ll.lat.toFixed(4);
+                    document.getElementById('mp-lng').textContent = ll.lng.toFixed(4);
+                });
+            }, 100);
+        }
+
+        function confirmEditMapPicker() {
+            const lat = document.getElementById('mp-lat').textContent;
+            const lng = document.getElementById('mp-lng').textContent;
+            const latEl = document.getElementById('em-mk-' + _mapPickerIdx + '-lat');
+            const lngEl = document.getElementById('em-mk-' + _mapPickerIdx + '-lng');
+            if (latEl) latEl.value = lat;
+            if (lngEl) lngEl.value = lng;
+            closeMapPicker();
+        }
+
+        async function updateMapWidget(dashboardId, widgetId) {
+            const markers = [];
+            const connections = window._editMapConnections || [];
+            for (const c of connections) {
+                for (const t of (c.tags || [])) {
+                    const idx = c.id + '_' + t.id;
+                    const cb = document.getElementById('em-mk-' + idx + '-enabled');
+                    if (cb && cb.checked) {
+                        const lat = parseFloat(document.getElementById('em-mk-' + idx + '-lat').value);
+                        const lng = parseFloat(document.getElementById('em-mk-' + idx + '-lng').value);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            markers.push({
+                                connection_id: c.id,
+                                tag_id: t.id,
+                                lat: lat,
+                                lng: lng
+                            });
+                        }
+                    }
+                }
+            }
+            const body = {
+                title: document.getElementById('dw-title').value,
+                widget_type: 'map',
+                tag_id: null,
+                config: {
+                    centerLat: parseFloat(document.getElementById('dw-centerLat').value) || 59.3,
+                    centerLng: parseFloat(document.getElementById('dw-centerLng').value) || 18.1,
+                    defaultZoom: parseInt(document.getElementById('dw-zoom').value) || 9,
+                    height: parseInt(document.getElementById('dw-height').value) || 450,
+                    markers: markers
+                }
+            };
+            await fetch('/api/dashboards/widgets/' + widgetId, {
+                method:'PUT', headers:getAuthHeaders(), body: JSON.stringify(body)
+            });
+            showDashboardBuilder(dashboardId);
+        }
+
         async function showDashboardBuilder(dashboardId) {
             let dashboard, connections = [];
             try {
@@ -1658,15 +1925,20 @@
                 {val:'pressure_meter', label:'Tryckm&#228;tare'},
                 {val:'level_meter', label:'Niv&#229;m&#228;tare'},
                 {val:'gauge', label:'Generell m&#228;tare'},
-                {val:'chart', label:'Historisk graf'}
+                {val:'chart', label:'Historisk graf'},
+                {val:'map', label:'Karta (mark&#246;rer)'}
             ];
 
             const widgetsHtml = widgets.map((w, i) => {
                 const cfg = w.config || {};
+                const markerCount = w.widget_type === 'map' ? ((cfg.markers || []).length) : 0;
+                const extraInfo = w.widget_type === 'map'
+                    ? ' <span style="color:#64748b;font-size:12px;">(' + markerCount + ' mark&#246;rer)</span>'
+                    : (w.tag_name ? ' <span style="color:#64748b;font-size:12px;">&#8594; ' + esc(w.tag_name) + '</span>' : '');
                 return '<div class="card" style="border-left:3px solid ' + (WIDGET_COLORS[i % WIDGET_COLORS.length]) + ';">' +
                     '<div style="display:flex;justify-content:space-between;align-items:center;">' +
                         '<div><strong>' + esc(w.title) + '</strong> <span class="badge badge-blue">' + w.widget_type + '</span>' +
-                        (w.tag_name ? ' <span style="color:#64748b;font-size:12px;">&#8594; ' + esc(w.tag_name) + '</span>' : '') + '</div>' +
+                        extraInfo + '</div>' +
                         '<div class="btn-group">' +
                             '<button class="btn btn-sm btn-outline" onclick="editDashboardWidget(' + dashboardId + ',' + w.id + ')">Redigera</button>' +
                             '<button class="btn btn-sm btn-outline" onclick="moveWidget(' + dashboardId + ',' + w.id + ',\'up\')">&#9650;</button>' +
@@ -1686,10 +1958,11 @@
                 '<h4 style="margin-bottom:12px;color:#60a5fa;">L&#228;gg till widget</h4>' +
                 '<div class="form-row">' +
                     '<div class="form-group"><label>Titel</label><input id="dw-title" placeholder="T.ex. Brunnen 1 Fl&#246;de"></div>' +
-                    '<div class="form-group"><label>Typ</label><select id="dw-type">' +
+                    '<div class="form-group"><label>Typ</label><select id="dw-type" onchange="toggleWidgetFormFields()">' +
                         widgetTypes.map(t => '<option value="' + t.val + '">' + t.label + '</option>').join('') +
                     '</select></div>' +
                 '</div>' +
+                '<div class="dw-generic-section" id="dw-generic-section">' +
                 '<div class="form-group"><label>Tagg / Register</label><select id="dw-tag">' +
                     '<option value="">-- V&#228;lj tagg --</option>' + connOptions +
                 '</select></div>' +
@@ -1707,26 +1980,77 @@
                     '<div class="form-group"><label>Varnings-gr&#228;ns l&#229;g</label><input type="number" step="0.1" id="dw-warnLow" placeholder="T.ex. 10"></div>' +
                     '<div class="form-group"><label>Varnings-gr&#228;ns h&#246;g</label><input type="number" step="0.1" id="dw-warnHigh" placeholder="T.ex. 100"></div>' +
                 '</div>' +
-                '<button class="btn btn-success" onclick="addWidgetToDashboard(' + dashboardId + ')">+ L&#228;gg till widget</button>' +
+            '</div>' +
+            '<div class="dw-map-section" id="dw-map-section">' +
+                '<div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px;">Kartinst&#228;llningar</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Center latitud</label><input type="number" step="any" id="dw-centerLat" value="59.3" placeholder="T.ex. 59.3"></div>' +
+                    '<div class="form-group"><label>Center longitud</label><input type="number" step="any" id="dw-centerLng" value="18.1" placeholder="T.ex. 18.1"></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>Default zoom (1-18)</label><input type="number" id="dw-zoom" value="9" min="1" max="18"></div>' +
+                    '<div class="form-group"><label>H&#246;jd (px)</label><input type="number" id="dw-height" value="450" min="200" max="1000"></div>' +
+                '</div>' +
+                '<div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:8px;margin-top:12px;">Mark&#246;rer</div>' +
+                '<div class="marker-header"><span>Tagg</span><span>Lat</span><span>Lng</span><span></span></div>' +
+                '<div id="dw-markers-list">' + buildMarkerRows(connections) + '</div>' +
+            '</div>' +
+            '<button class="btn btn-success" onclick="addWidgetToDashboard(' + dashboardId + ')">+ L&#228;gg till widget</button>' +
                 '<div class="modal-actions" style="margin-top:16px;"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>'
             );
+            setTimeout(toggleWidgetFormFields, 50);
         }
 
         const WIDGET_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
 
         async function addWidgetToDashboard(dashboardId) {
-            const tagVal = document.getElementById('dw-tag').value;
-            const body = {
-                title: document.getElementById('dw-title').value,
-                widget_type: document.getElementById('dw-type').value,
-                tag_id: tagVal ? parseInt(tagVal) : null,
-                config: {
-                    unit: document.getElementById('dw-unit').value,
-                    icon: document.getElementById('dw-icon').value,
-                    warnLow: document.getElementById('dw-warnLow').value ? parseFloat(document.getElementById('dw-warnLow').value) : null,
-                    warnHigh: document.getElementById('dw-warnHigh').value ? parseFloat(document.getElementById('dw-warnHigh').value) : null
+            const wtype = document.getElementById('dw-type').value;
+            let body;
+            if (wtype === 'map') {
+                const markers = [];
+                let idx = 0;
+                while (document.getElementById('dw-mk-' + idx + '-enabled')) {
+                    const cb = document.getElementById('dw-mk-' + idx + '-enabled');
+                    if (cb && cb.checked) {
+                        const lat = parseFloat(document.getElementById('dw-mk-' + idx + '-lat').value);
+                        const lng = parseFloat(document.getElementById('dw-mk-' + idx + '-lng').value);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            markers.push({
+                                connection_id: parseInt(cb.dataset.connId),
+                                tag_id: parseInt(cb.dataset.tagId),
+                                lat: lat,
+                                lng: lng
+                            });
+                        }
+                    }
+                    idx++;
                 }
-            };
+                body = {
+                    title: document.getElementById('dw-title').value,
+                    widget_type: 'map',
+                    tag_id: null,
+                    config: {
+                        centerLat: parseFloat(document.getElementById('dw-centerLat').value) || 59.3,
+                        centerLng: parseFloat(document.getElementById('dw-centerLng').value) || 18.1,
+                        defaultZoom: parseInt(document.getElementById('dw-zoom').value) || 9,
+                        height: parseInt(document.getElementById('dw-height').value) || 450,
+                        markers: markers
+                    }
+                };
+            } else {
+                const tagVal = document.getElementById('dw-tag').value;
+                body = {
+                    title: document.getElementById('dw-title').value,
+                    widget_type: wtype,
+                    tag_id: tagVal ? parseInt(tagVal) : null,
+                    config: {
+                        unit: document.getElementById('dw-unit').value,
+                        icon: document.getElementById('dw-icon').value,
+                        warnLow: document.getElementById('dw-warnLow').value ? parseFloat(document.getElementById('dw-warnLow').value) : null,
+                        warnHigh: document.getElementById('dw-warnHigh').value ? parseFloat(document.getElementById('dw-warnHigh').value) : null
+                    }
+                };
+            }
             if (!body.title) { alert('Titel krävs'); return; }
             const res = await fetch('/api/dashboards/' + dashboardId + '/widgets', {
                 method:'POST', headers:getAuthHeaders(), body: JSON.stringify(body)
@@ -1749,7 +2073,52 @@
                 return '<optgroup label="' + esc(c.name) + ' (' + c.type.toUpperCase() + ')">' + tags + '</optgroup>';
             }).join('');
 
-            const widgetTypes = ['well','flow_meter','pressure_meter','level_meter','gauge','chart'];
+            const widgetTypes = ['well','flow_meter','pressure_meter','level_meter','gauge','chart','map'];
+
+            if (widget.widget_type === 'map') {
+                const cfg = widget.config || {};
+                const markers = cfg.markers || [];
+                const markerRows = connections.map(c => {
+                    let rows = '';
+                    for (const t of (c.tags || [])) {
+                        const existing = markers.find(m => m.connection_id === c.id && m.tag_id === t.id);
+                        const enabled = !!existing;
+                        const lat = existing ? existing.lat : '';
+                        const lng = existing ? existing.lng : '';
+                        const idx = c.id + '_' + t.id;
+                        rows += '<div class="marker-row">' +
+                            '<label><input type="checkbox" id="em-mk-' + idx + '-enabled" data-conn-id="' + c.id + '" data-tag-id="' + t.id + '"' + (enabled ? ' checked' : '') + '> ' +
+                            esc(c.name) + ' / ' + esc(t.name) + '</label>' +
+                            '<input type="number" step="any" id="em-mk-' + idx + '-lat" value="' + lat + '" placeholder="Lat">' +
+                            '<input type="number" step="any" id="em-mk-' + idx + '-lng" value="' + lng + '" placeholder="Lng">' +
+                            '<button class="pick-btn" onclick="openEditMapPicker(\'' + idx + '\')">Placera p&#229; karta</button>' +
+                            '</div>';
+                    }
+                    return rows;
+                }).join('');
+
+                showModal(
+                    '<h3>Redigera kart-widget</h3>' +
+                    '<div class="form-group"><label>Titel</label><input id="dw-title" value="' + esc(widget.title) + '"></div>' +
+                    '<div class="form-row">' +
+                        '<div class="form-group"><label>Center latitud</label><input type="number" step="any" id="dw-centerLat" value="' + (cfg.centerLat || 59.3) + '"></div>' +
+                        '<div class="form-group"><label>Center longitud</label><input type="number" step="any" id="dw-centerLng" value="' + (cfg.centerLng || 18.1) + '"></div>' +
+                    '</div>' +
+                    '<div class="form-row">' +
+                        '<div class="form-group"><label>Default zoom</label><input type="number" id="dw-zoom" value="' + (cfg.defaultZoom || 9) + '" min="1" max="18"></div>' +
+                        '<div class="form-group"><label>H&#246;jd (px)</label><input type="number" id="dw-height" value="' + (cfg.height || 450) + '" min="200" max="1000"></div>' +
+                    '</div>' +
+                    '<div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:8px;">Mark&#246;rer</div>' +
+                    '<div class="marker-header"><span>Tagg</span><span>Lat</span><span>Lng</span><span></span></div>' +
+                    (markerRows || '<p style="color:#64748b;">Inga anslutningar</p>') +
+                    '<div class="modal-actions">' +
+                        '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                        '<button class="btn btn-primary" onclick="updateMapWidget(' + dashboardId + ',' + widgetId + ')">Spara</button>' +
+                    '</div>'
+                );
+                window._editMapConnections = connections;
+                return;
+            }
 
             showModal(
                 '<h3>Redigera widget</h3>' +

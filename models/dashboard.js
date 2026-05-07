@@ -247,4 +247,58 @@ async function getDefault() {
   }
 }
 
-module.exports = { list, getBySlug, getById, create, update, remove, getWidgets, addWidget, updateWidget, removeWidget, getHistoryBySource, setDefault, getDefault };
+async function resolveMapMarkers(widgets) {
+  const mapWidgets = widgets.filter(w => w.widget_type === 'map');
+  if (!mapWidgets.length) return;
+
+  const markerIds = new Set();
+  for (const w of mapWidgets) {
+    const markers = w.config.markers || [];
+    for (const m of markers) {
+      if (m.connection_id && m.tag_id) markerIds.add(m.connection_id + '_' + m.tag_id);
+    }
+  }
+  if (!markerIds.size) return;
+
+  const entries = [...markerIds];
+  const connIds = [...new Set(entries.map(e => parseInt(e.split('_')[0])))];
+  const tagIds = [...new Set(entries.map(e => parseInt(e.split('_')[1])))];
+
+  let connDb;
+  try {
+    connDb = await pool.getConnection();
+    const connections = await connDb.query(
+      'SELECT id, name, type, config FROM connections WHERE id IN (' + connIds.map(() => '?').join(',') + ')',
+      connIds
+    );
+    const tags = await connDb.query(
+      'SELECT id, name, connection_id, last_value, last_read_at FROM tags WHERE id IN (' + tagIds.map(() => '?').join(',') + ')',
+      tagIds
+    );
+
+    const connMap = {};
+    connections.forEach(c => { connMap[c.id] = c; });
+    const tagMap = {};
+    tags.forEach(t => { tagMap[t.id] = t; });
+
+    for (const w of mapWidgets) {
+      w._resolvedMarkers = (w.config.markers || []).map(m => {
+        const c = connMap[m.connection_id];
+        const t = tagMap[m.tag_id];
+        return {
+          ...m,
+          connection_name: c ? c.name : 'Okänd',
+          connection_type: c ? c.type : '',
+          tag_name: t ? t.name : 'Okänd',
+          tag_last_value: t ? t.last_value : null,
+          tag_last_read_at: t ? t.last_read_at : null,
+          source: (c ? c.name : '') + '_' + (t ? t.name : '')
+        };
+      });
+    }
+  } finally {
+    if (connDb) connDb.release();
+  }
+}
+
+module.exports = { list, getBySlug, getById, create, update, remove, getWidgets, addWidget, updateWidget, removeWidget, getHistoryBySource, setDefault, getDefault, resolveMapMarkers };

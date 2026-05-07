@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: #0f172a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; min-height: 100vh; }
@@ -67,6 +69,29 @@
         .btn-primary { background: #2563eb; color: #fff; width: 100%; margin-top: 8px; }
         .login-error { color: #f87171; font-size: 13px; margin-top: 8px; min-height: 20px; }
 
+        .view-tabs { display: flex; gap: 2px; margin-bottom: 16px; }
+        .view-tab { padding: 8px 18px; background: #1e293b; border: 1px solid #334155; border-radius: 6px 6px 0 0; color: #94a3b8; cursor: pointer; font-size: 13px; font-weight: 500; transition: all .15s; }
+        .view-tab:hover { background: #334155; color: #e2e8f0; }
+        .view-tab.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+        .map-card { display: none; background: #1e293b; border: 1px solid #334155; border-radius: 10px; margin-bottom: 20px; overflow: hidden; }
+        .map-card.show { display: block; }
+        #leafletMap { width: 100%; border-radius: 8px; z-index: 1; }
+
+        .trend-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 2000; align-items: center; justify-content: center; }
+        .trend-modal-overlay.show { display: flex; }
+        .trend-modal { background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 24px; width: 90%; max-width: 700px; max-height: 85vh; overflow-y: auto; }
+        .trend-modal h3 { font-size: 16px; color: #f1f5f9; margin-bottom: 4px; }
+        .trend-modal .tm-subtitle { color: #64748b; font-size: 12px; margin-bottom: 16px; }
+        .trend-period-btns { display: flex; gap: 4px; margin-bottom: 16px; }
+        .trend-period-btn { padding: 5px 14px; background: #0f172a; border: 1px solid #334155; border-radius: 4px; color: #94a3b8; cursor: pointer; font-size: 12px; }
+        .trend-period-btn:hover { background: #334155; }
+        .trend-period-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+        .trend-current { color: #94a3b8; font-size: 13px; margin-top: 10px; }
+        .trend-current strong { color: #60a5fa; }
+        .tm-close-btn { padding: 8px 20px; background: #2563eb; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 500; }
+        .tm-close-btn:hover { background: #1d4ed8; }
+
         @media (max-width: 768px) {
             .kpi-row { grid-template-columns: 1fr 1fr; }
             .widget-grid { grid-template-columns: 1fr; }
@@ -101,19 +126,43 @@
 
         <div class="pub-container">
             <div class="kpi-row" id="kpiRow"></div>
-            <div class="main-chart-card">
+            <div class="view-tabs" id="viewTabs" style="display:none;">
+                <button class="view-tab active" data-view="trend">&#214;vergripande trend</button>
+                <button class="view-tab" data-view="map">Karta</button>
+            </div>
+            <div class="main-chart-card" id="mainChartCard">
                 <h2>&#214;vergripande trend</h2>
                 <div class="subtitle">Alla m&#228;tpunkter kombinerade</div>
                 <canvas id="mainChart" height="140"></canvas>
+            </div>
+            <div class="map-card" id="mapCard">
+                <div id="leafletMap"></div>
             </div>
             <h3 style="margin-bottom:12px;color:#94a3b8;font-size:15px;">M&#228;tpunkter</h3>
             <div class="widget-grid" id="widgetGrid"></div>
         </div>
     </div>
 
+    <div class="trend-modal-overlay" id="trendModalOverlay">
+        <div class="trend-modal">
+            <h3 id="tmTitle"></h3>
+            <div class="tm-subtitle" id="tmSubtitle"></div>
+            <div class="trend-period-btns">
+                <button class="trend-period-btn active" data-minutes="60" onclick="switchTrendPeriod(60, this)">1 timme</button>
+                <button class="trend-period-btn" data-minutes="1440" onclick="switchTrendPeriod(1440, this)">24 timmar</button>
+                <button class="trend-period-btn" data-minutes="10080" onclick="switchTrendPeriod(10080, this)">7 dagar</button>
+            </div>
+            <canvas id="trendChart" height="120"></canvas>
+            <div class="trend-current" id="tmCurrent"></div>
+            <div class="modal-actions" style="margin-top:16px; display:flex; gap:8px; justify-content:flex-end;">
+                <button class="tm-close-btn" onclick="closeTrendModal()">Stäng</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const WIDGET_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899','#06b6d4','#84cc16','#f97316','#64748b'];
-        const WIDGET_ICONS = { well: '&#128167;', flow_meter: '&#128167;', pressure_meter: '&#9883;', level_meter: '&#9679;', gauge: '&#128200;', chart: '&#128202;' };
+        const WIDGET_ICONS = { well: '&#128167;', flow_meter: '&#128167;', pressure_meter: '&#9883;', level_meter: '&#9679;', gauge: '&#128200;', chart: '&#128202;', map: '&#128506;' };
         let slug = window.location.pathname.replace('/d/', '').replace(/^\//, '');
         let isDefault = !slug;
         let dashboard = null;
@@ -155,10 +204,10 @@
 
         function render() {
             document.title = dashboard.name;
+            const widgets = dashboard.widgets || [];
             document.getElementById('dashTitle').innerHTML = (WIDGET_ICONS[dashboard.widgets && dashboard.widgets[0] ? dashboard.widgets[0].widget_type : 'chart'] || '&#128202;') + ' ' + esc(dashboard.name);
             document.getElementById('dashMeta').textContent = dashboard.description || '';
 
-            const widgets = dashboard.widgets || [];
             if (!widgets.length) {
                 document.getElementById('widgetGrid').innerHTML = '<div class="empty-state"><div class="icon">&#128202;</div><p>Inga widgetar konfigurerade</p></div>';
                 return;
@@ -167,6 +216,7 @@
             renderKPIs(widgets);
             renderWidgets(widgets);
             loadHistoryForAll(widgets);
+            initView(widgets);
         }
 
         function renderKPIs(widgets) {
@@ -312,10 +362,177 @@
                     }
                 });
                 renderKPIs(widgets);
+
+                const mapWidget = widgets.find(w => w.widget_type === 'map');
+                if (mapWidget && mapWidget._resolvedMarkers && leafletMarkers.length) {
+                    const markers = mapWidget._resolvedMarkers;
+                    leafletMarkers.forEach((lm, i) => {
+                        if (i < markers.length) {
+                            const m = markers[i];
+                            const value = m.tag_last_value !== null && m.tag_last_value !== undefined ? m.tag_last_value.toFixed(1) : '--';
+                            lm.setPopupContent(
+                                '<strong>' + esc(m.connection_name) + '</strong><br>' +
+                                esc(m.tag_name) + ': <strong style="color:#60a5fa;">' + value + '</strong>'
+                            );
+                            lm._trendSource = m.source;
+                        }
+                    });
+                }
             } catch {}
         }
 
         function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        let leafletMap = null;
+        let leafletMarkers = [];
+        let leafletMarkerGroup = null;
+        let trendChart = null;
+        let trendSource = null;
+        let trendUnit = '';
+
+        function initView(widgets) {
+            const mapWidget = widgets.find(w => w.widget_type === 'map');
+            const tabsEl = document.getElementById('viewTabs');
+            const mainChartCard = document.getElementById('mainChartCard');
+            const mapCard = document.getElementById('mapCard');
+
+            if (mapWidget && mapWidget._resolvedMarkers && mapWidget._resolvedMarkers.length) {
+                tabsEl.style.display = 'flex';
+                initMapWidget(mapWidget);
+                document.querySelectorAll('#viewTabs .view-tab').forEach(tab => {
+                    tab.addEventListener('click', function() { switchView(this.dataset.view); });
+                });
+            } else {
+                tabsEl.style.display = 'none';
+                mainChartCard.style.display = 'block';
+                mapCard.classList.remove('show');
+            }
+        }
+
+        function initMapWidget(mapWidget) {
+            const cfg = mapWidget.config || {};
+            const mapEl = document.getElementById('leafletMap');
+            mapEl.style.height = (cfg.height || 450) + 'px';
+
+            if (leafletMap) { leafletMap.remove(); leafletMap = null; }
+            leafletMap = L.map(mapEl, { zoomControl: true }).setView(
+                [cfg.centerLat || 59.3, cfg.centerLng || 18.1],
+                cfg.defaultZoom || 9
+            );
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            }).addTo(leafletMap);
+
+            leafletMarkers = [];
+            leafletMarkerGroup = L.featureGroup().addTo(leafletMap);
+
+            const markers = mapWidget._resolvedMarkers || [];
+            markers.forEach(m => {
+                const value = m.tag_last_value !== null && m.tag_last_value !== undefined ? m.tag_last_value.toFixed(1) : '--';
+                const marker = L.marker([m.lat, m.lng]).addTo(leafletMarkerGroup);
+                marker.bindPopup(
+                    '<strong>' + esc(m.connection_name) + '</strong><br>' +
+                    esc(m.tag_name) + ': <strong style="color:#60a5fa;">' + value + '</strong>'
+                );
+                marker.on('click', function() {
+                    openTrendModal(m.source, m.connection_name, m.tag_name, '');
+                });
+                marker._trendSource = m.source;
+                marker._connName = m.connection_name;
+                marker._tagName = m.tag_name;
+                leafletMarkers.push(marker);
+            });
+
+            if (markers.length > 1) {
+                leafletMap.fitBounds(leafletMarkerGroup.getBounds().pad(0.1));
+            }
+        }
+
+        function switchView(view) {
+            const mainChartCard = document.getElementById('mainChartCard');
+            const mapCard = document.getElementById('mapCard');
+            document.querySelectorAll('#viewTabs .view-tab').forEach(t => t.classList.remove('active'));
+            document.querySelector('#viewTabs .view-tab[data-view="' + view + '"]').classList.add('active');
+
+            if (view === 'map') {
+                mainChartCard.style.display = 'none';
+                mapCard.classList.add('show');
+                if (leafletMap) { setTimeout(() => leafletMap.invalidateSize(), 50); }
+            } else {
+                mainChartCard.style.display = 'block';
+                mapCard.classList.remove('show');
+            }
+        }
+
+        function openTrendModal(source, connName, tagName, unit) {
+            trendSource = source;
+            trendUnit = unit;
+            document.getElementById('tmTitle').textContent = connName + ' - ' + tagName;
+            document.getElementById('tmSubtitle').textContent = 'Trend f\u00f6r ' + tagName;
+            document.getElementById('trendModalOverlay').classList.add('show');
+            document.querySelectorAll('.trend-period-btn').forEach(b => b.classList.remove('active'));
+            const btn1h = document.querySelector('.trend-period-btn[data-minutes="60"]');
+            if (btn1h) btn1h.classList.add('active');
+            loadTrendData(source, 60);
+        }
+
+        function closeTrendModal() {
+            document.getElementById('trendModalOverlay').classList.remove('show');
+            if (trendChart) { trendChart.destroy(); trendChart = null; }
+        }
+
+        function switchTrendPeriod(minutes, btn) {
+            document.querySelectorAll('.trend-period-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            loadTrendData(trendSource, minutes);
+        }
+
+        async function loadTrendData(source, minutes) {
+            const unit = trendUnit;
+            try {
+                const res = await fetch('/api/dashboards/history/' + encodeURIComponent(source) + '?minutes=' + minutes);
+                const rows = await res.json();
+                const ctx = document.getElementById('trendChart').getContext('2d');
+                if (trendChart) trendChart.destroy();
+
+                const labels = rows.map(r => {
+                    const d = new Date(r.timestamp);
+                    if (minutes <= 120) return d.toLocaleTimeString();
+                    if (minutes <= 2880) return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+                    return d.toLocaleDateString();
+                });
+
+                trendChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'V\u00e4rde',
+                            data: rows.map(r => r.flow_rate),
+                            borderColor: '#60a5fa',
+                            backgroundColor: '#60a5fa20',
+                            fill: true,
+                            tension: 0.4,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true, animation: false,
+                        scales: {
+                            y: { beginAtZero: true, grid: {color:'#1e293b'}, ticks: {color:'#94a3b8'} },
+                            x: { grid: {display:false}, ticks: {color:'#64748b', maxTicksLimit:12} }
+                        },
+                        plugins: { legend: { labels: { color: '#94a3b8' } } }
+                    }
+                });
+
+                const current = rows.length ? rows[rows.length - 1].flow_rate.toFixed(1) : '--';
+                document.getElementById('tmCurrent').innerHTML = 'Aktuellt: <strong>' + current + (unit ? ' ' + esc(unit) : '') + '</strong>';
+            } catch {
+                document.getElementById('tmCurrent').innerHTML = 'Kunde inte ladda trenddata';
+            }
+        }
 
         async function doLogin() {
             const u = document.getElementById('loginUser').value;
@@ -335,6 +552,7 @@
         }
 
         document.getElementById('loginPass').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+        document.getElementById('trendModalOverlay').addEventListener('click', e => { if (e.target === e.currentTarget) closeTrendModal(); });
 
         loadDashboard();
         setInterval(refreshLive, 5000);

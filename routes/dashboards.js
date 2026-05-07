@@ -25,6 +25,7 @@ router.get('/default', async (req, res, next) => {
         return res.status(401).json({ error: 'Denna dashboard kräver inloggning' });
       }
     }
+    await dashboardModel.resolveMapMarkers(dashboard.widgets);
     res.json(dashboard);
   } catch (err) { next(err); }
 });
@@ -41,6 +42,7 @@ router.get('/slug/:slug', async (req, res, next) => {
       }
     }
     const widgets = await dashboardModel.getWidgets(dashboard.id);
+    await dashboardModel.resolveMapMarkers(widgets);
     res.json({ ...dashboard, widgets });
   } catch (err) { next(err); }
 });
@@ -50,6 +52,7 @@ router.get('/:id', async (req, res, next) => {
     const dashboard = await dashboardModel.getById(req.params.id);
     if (!dashboard) return res.status(404).json({ error: 'Hittades inte' });
     const widgets = await dashboardModel.getWidgets(dashboard.id);
+    await dashboardModel.resolveMapMarkers(widgets);
     res.json({ ...dashboard, widgets });
   } catch (err) { next(err); }
 });

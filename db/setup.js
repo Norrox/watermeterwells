@@ -100,6 +100,7 @@ async function setupDatabase() {
     await conn.query(DASHBOARDS_TABLE);
     await conn.query(DASHBOARD_WIDGETS_TABLE);
     try { await conn.query("ALTER TABLE dashboards ADD COLUMN is_default BOOLEAN DEFAULT FALSE"); } catch {}
+    try { await conn.query("ALTER TABLE dashboard_widgets MODIFY COLUMN widget_type ENUM('well','flow_meter','pressure_meter','level_meter','gauge','chart','map') NOT NULL DEFAULT 'gauge'"); } catch {}
 
     const rows = await conn.query('SELECT COUNT(*) AS cnt FROM users');
     if (Number(rows[0].cnt) === 0) {

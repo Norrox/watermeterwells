@@ -1,4 +1,5 @@
 ﻿const { OPCUAClient, AttributeIds, MessageSecurityMode, SecurityPolicy } = require('node-opcua');
+const { applyScaling } = require('./scaling');
 
 const SECURITY_MODES = {
   'None': MessageSecurityMode.None,
@@ -138,10 +139,9 @@ class OpcuaConnection {
                 case 'string': value = String(value); break;
               }
             }
-            if (cfg.unitMultiplier) value *= parseFloat(cfg.unitMultiplier);
-            const decimals = cfg.decimals !== undefined ? parseInt(cfg.decimals) : null;
-            if (decimals !== null) value = parseFloat(value.toFixed(decimals));
-            tag.onData(value);
+            const rawValue = value;
+            value = applyScaling(value, cfg);
+            tag.onData({ value, decodedRaw: rawValue });
             if (tag.onError) tag.onError(null);
           } else if (result.error && tag.onError) {
             if (/closed|session/i.test(result.error)) await this.ensureConnected();
