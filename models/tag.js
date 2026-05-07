@@ -5,7 +5,7 @@ async function listByConnection(connectionId) {
   try {
     conn = await pool.getConnection();
     return await conn.query(
-      'SELECT id, connection_id, name, enabled, config, last_value, last_read_at, error_message, created_at FROM tags WHERE connection_id = ? ORDER BY id',
+      'SELECT id, connection_id, name, enabled, config, last_value, last_raw_value, last_read_at, error_message, created_at FROM tags WHERE connection_id = ? ORDER BY id',
       [connectionId]
     );
   } finally {
@@ -18,7 +18,7 @@ async function getById(id) {
   try {
     conn = await pool.getConnection();
     const rows = await conn.query(
-      'SELECT id, connection_id, name, enabled, config, last_value, last_read_at, error_message, created_at FROM tags WHERE id = ?',
+      'SELECT id, connection_id, name, enabled, config, last_value, last_raw_value, last_read_at, error_message, created_at FROM tags WHERE id = ?',
       [id]
     );
     return rows[0] || null;
@@ -85,6 +85,19 @@ async function updateLastValue(id, value) {
   }
 }
 
+async function updateLastValueWithRaw(id, value, rawValue) {
+  let conn;
+  try {
+    conn = await pool.getConnection();
+    await conn.query(
+      'UPDATE tags SET last_value = ?, last_raw_value = ?, last_read_at = NOW(), error_message = NULL WHERE id = ?',
+      [value, rawValue, id]
+    );
+  } finally {
+    if (conn) conn.release();
+  }
+}
+
 async function updateError(id, errorMessage) {
   let conn;
   try {
@@ -98,4 +111,4 @@ async function updateError(id, errorMessage) {
   }
 }
 
-module.exports = { listByConnection, getById, create, update, remove, updateLastValue, updateError };
+module.exports = { listByConnection, getById, create, update, remove, updateLastValue, updateLastValueWithRaw, updateError };

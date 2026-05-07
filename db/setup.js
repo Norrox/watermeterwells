@@ -42,6 +42,7 @@ const TAGS_TABLE = `
     enabled BOOLEAN DEFAULT TRUE,
     config JSON NOT NULL,
     last_value DOUBLE DEFAULT NULL,
+    last_raw_value DOUBLE DEFAULT NULL,
     last_read_at DATETIME DEFAULT NULL,
     error_message TEXT DEFAULT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -94,6 +95,7 @@ async function setupDatabase() {
     await conn.query(METER_READINGS_TABLE);
     await conn.query(CONNECTIONS_TABLE);
     await conn.query(TAGS_TABLE);
+    try { await conn.query("ALTER TABLE tags ADD COLUMN last_raw_value DOUBLE DEFAULT NULL AFTER last_value"); } catch {}
     await conn.query(USERS_TABLE);
     await conn.query(DASHBOARDS_TABLE);
     await conn.query(DASHBOARD_WIDGETS_TABLE);

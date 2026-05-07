@@ -5,6 +5,20 @@ const ModbusConnection = require('../protocols/modbus');
 const { OpcuaConnection } = require('../protocols/opcua');
 
 const activeConnections = new Map();
+const lastLogTimes = new Map();
+
+function shouldLog(tagId, tagConfig) {
+  if (!tagConfig.logToDatabase) return false;
+  const interval = parseInt(tagConfig.logInterval) || 0;
+  if (interval <= 0) return true;
+  const now = Date.now();
+  const last = lastLogTimes.get(tagId) || 0;
+  if (now - last >= interval) {
+    lastLogTimes.set(tagId, now);
+    return true;
+  }
+  return false;
+}
 
 async function startAll() {
   const connections = await connectionModel.list();
@@ -65,12 +79,15 @@ async function startConnection(id) {
       config: tagConfig,
       onData: async (result) => {
         const value = typeof result === 'object' && result.value !== undefined ? result.value : result;
-        await tagModel.updateLastValue(tag.id, value);
-        const source = `${conn.name}_${tag.name}`;
-        await flowLog.insert(value, source);
+        const rawValue = typeof result === 'object' && result.decodedRaw !== undefined ? result.decodedRaw : null;
+        await tagModel.updateLastValueWithRaw(tag.id, value, rawValue);
+        if (shouldLog(tag.id, tagConfig)) {
+          const source = `${conn.name}_${tag.name}`;
+          await flowLog.insert(value, source);
+        }
       },
       onError: async (errorMsg) => {
-        if (errorMsg) await tagModel.updateError(tag.id, errorMsg);
+        await tagModel.updateError(tag.id, errorMsg || null);
       }
     };
   });

@@ -549,14 +549,22 @@
             const addrInfo = conn.type === 'modbus'
                 ? (cfg.registerType || 'holding') + ' @ ' + (cfg.address || '?') + (cfg.dataType ? ' (' + cfg.dataType + ')' : '')
                 : (cfg.nodeId || '?');
-            const lastVal = tag.last_value !== null && tag.last_value !== undefined ? tag.last_value : '--';
+            const lastVal = tag.last_value !== null && tag.last_value !== undefined ? tag.last_value : null;
+            const rawVal = tag.last_raw_value !== null && tag.last_raw_value !== undefined ? tag.last_raw_value : null;
+            const decimals = cfg.decimals !== undefined && cfg.decimals !== null ? parseInt(cfg.decimals) : null;
+            const displayVal = lastVal !== null && decimals !== null ? lastVal.toFixed(decimals) : (lastVal !== null ? String(lastVal) : '--');
+            const displayRaw = rawVal !== null ? (Number.isInteger(rawVal) ? String(rawVal) : rawVal.toFixed(4)) : '--';
             const hasError = tag.error_message;
             return '<div class="tag-row" style="' + (hasError ? 'background:#7f1d1d20;' : '') + '">' +
-                statusDot(hasError ? 'error' : (tag.last_value !== null ? 'connected' : 'stopped')) +
+                statusDot(hasError ? 'error' : (lastVal !== null ? 'connected' : 'stopped')) +
                 '<div><strong>' + esc(tag.name) + '</strong><br><span style="color:#64748b;font-size:12px;">' + esc(addrInfo) + '</span>' +
+                (cfg.unit ? ' <span style="color:#475569;font-size:11px;">' + esc(cfg.unit) + '</span>' : '') +
                 (hasError ? '<br><span style="color:#f87171;font-size:11px;">&#9888; ' + esc(hasError) + '</span>' : '') +
                 '</div>' +
-                '<span style="font-family:monospace;color:#60a5fa;">' + lastVal + '</span>' +
+                '<div style="text-align:right;font-family:monospace;">' +
+                    '<span style="color:#64748b;font-size:11px;">r&#229;: ' + displayRaw + '</span><br>' +
+                    '<span style="color:#60a5fa;font-size:14px;font-weight:600;">' + displayVal + '</span>' +
+                '</div>' +
                 '<button class="btn btn-sm btn-outline" onclick="testTag(' + tag.id + ')">Test</button>' +
                 '<button class="btn btn-sm btn-outline" onclick="editTag(' + tag.id + ',' + conn.id + ',\'' + conn.type + '\')">Redigera</button>' +
                 '<button class="btn btn-sm btn-danger" onclick="deleteTag(' + tag.id + ',' + conn.id + ',\'' + conn.type + '\')">X</button>' +
@@ -564,6 +572,29 @@
         }
 
         function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+        function getFieldValue(id) { const el = document.getElementById(id); return el ? el.value : null; }
+
+        function toggleLogInterval() {
+            const cb = document.getElementById('t-logToDatabase');
+            const row = document.getElementById('t-logIntervalRow');
+            if (cb && row) row.style.display = cb.checked ? '' : 'none';
+        }
+
+        function updateLogIntervalCustom() {
+            const preset = document.getElementById('t-logIntervalPreset');
+            const custom = document.getElementById('t-logIntervalCustom');
+            if (!preset || !custom) return;
+            if (preset.value !== 'custom') custom.value = preset.value;
+        }
+
+        function getLogInterval() {
+            const preset = document.getElementById('t-logIntervalPreset');
+            const custom = document.getElementById('t-logIntervalCustom');
+            if (!preset) return 0;
+            if (preset.value === 'custom') return parseInt(custom.value) || 0;
+            return parseInt(preset.value) || 0;
+        }
 
         function toggleConn(id) {
             const body = document.getElementById('conn-body-' + id);
@@ -629,19 +660,36 @@
             const lines = [];
             if (data.success) {
                 lines.push('&#10004; L&#228;sning lyckades');
-                lines.push('V&#228;rde: ' + data.value);
-                if (data.rawRegisters) lines.push('R&#229;data (register): [' + data.rawRegisters.join(', ') + ']');
-                if (data.decodedRaw !== undefined) lines.push('Avkodat r&#229;v&#228;rde: ' + data.decodedRaw);
+                lines.push('');
+                lines.push('Slutv&#228;rde: ' + data.value);
+                if (data.rawRegisters) lines.push('R&#229;register: [' + data.rawRegisters.join(', ') + ']');
+                if (data.decodedRaw !== undefined) lines.push('Avkodat r&#229;v&#228;rde: ' + data.decodedRaw + ' (exakt, ej avrundat)');
+                lines.push('');
                 if (data.config) {
-                    lines.push('Adress: ' + (data.config.address || '?'));
-                    lines.push('Datatyp: ' + (data.config.dataType || '?'));
-                    lines.push('Byte order: ' + (data.config.byteOrder || 'big'));
+                    lines.push('Adress: ' + data.config.address + '  |  Typ: ' + data.config.registerType + '  |  Datatyp: ' + data.config.dataType);
+                    lines.push('Byte order: ' + data.config.byteOrder + '  |  Word order: ' + (data.config.wordOrder||'big')
+                        + '  |  Byte swap: ' + (data.config.byteSwap?'JA':'nej') + '  |  Word swap: ' + (data.config.wordSwap?'JA':'nej'));
+                    lines.push('Adress offset +1: ' + (data.config.addressOffset?'JA':'nej'));
+                    lines.push('');
+                    lines.push('Skalningsl&#228;ge: ' + (data.config.scalingMode||'linear'));
+                    if (data.config.scalingMode === '4-20mA' || data.config.scalingMode === '0-10V') {
+                        lines.push('  Signal: ' + data.config.signalMin + ' - ' + data.config.signalMax);
+                        lines.push('  M&#228;tomr&#229;de: ' + data.config.scaleMin + ' - ' + data.config.scaleMax);
+                    } else if (data.config.scalingMode === 'linear') {
+                        lines.push('  Factor: ' + (data.config.scalingFactor||1) + '  Offset: ' + (data.config.offset||0));
+                    } else if (data.config.scalingMode === 'custom') {
+                        lines.push('  Uttryck: ' + (data.config.customExpression||'?'));
+                    }
+                    lines.push('  Decimals: ' + (data.config.decimals||0) + '  Multiplikator: ' + (data.config.unitMultiplier||1));
                 }
             } else {
                 lines.push('&#10008; Fel: ' + (data.error || 'Ok&#228;nt fel'));
-                if (data.config) lines.push('Adress: ' + (data.config.address || '?'));
+                if (data.config) {
+                    lines.push('Adress: ' + (data.config.address || '?'));
+                    lines.push('Datatyp: ' + (data.config.dataType || '?'));
+                }
             }
-            showModal('<h3>Testresultat</h3><div class="test-result">' + lines.join('\n') + '</div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>');
+            showModal('<h3>Testresultat</h3><div class="test-result" style="font-size:13px;">' + lines.join('\n') + '</div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">St&#228;ng</button></div>');
         }
         async function deleteTag(tagId, connId, type) {
             if (!confirm('Ta bort denna tagg?')) return;
@@ -779,6 +827,7 @@
                 tag = await res.json();
             }
             const cfg = tag ? (typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config) : {};
+            window._editTagCfg = cfg;
 
             if (connType === 'modbus') {
                 showModal(
@@ -814,10 +863,27 @@
                             '<option value="little"' + (cfg.wordOrder==='little'?' selected':'') + '>Little (l&#229;ga f&#246;rst)</option>' +
                         '</select></div>' +
                     '</div>' +
-                    '<div class="form-row-3">' +
-                        '<div class="form-group"><label>Scaling Factor</label><input type="number" step="0.01" id="t-scaling" value="' + (cfg.scalingFactor || 1) + '"><small style="color:#64748b;">Multiplicera r&#229;v&#228;rdet</small></div>' +
-                        '<div class="form-group"><label>Offset</label><input type="number" step="0.01" id="t-offset" value="' + (cfg.offset || 0) + '"><small style="color:#64748b;">L&#228;gg till efter scaling</small></div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#60a5fa;margin-bottom:10px;">V&#228;rdeformatering</div>' +
+                        '<div class="form-row">' +
+                            '<div class="form-group">' +
+                                '<label>Skalningsl&#228;ge</label>' +
+                                '<select id="t-scalingMode" onchange="updateScalingFields()">' +
+                                    '<option value="linear"' + ((cfg.scalingMode||'linear')==='linear'?' selected':'') + '>Line&#228;r (scaling + offset)</option>' +
+                                    '<option value="direct"' + (cfg.scalingMode==='direct'?' selected':'') + '>Direkt (endast avrunda)</option>' +
+                                    '<option value="4-20mA"' + (cfg.scalingMode==='4-20mA'?' selected':'') + '>4-20mA &#8594; Fl&#246;de</option>' +
+                                    '<option value="0-10V"' + (cfg.scalingMode==='0-10V'?' selected':'') + '>0-10V &#8594; Fl&#246;de</option>' +
+                                    '<option value="custom"' + (cfg.scalingMode==='custom'?' selected':'') + '>Custom uttryck (JS)</option>' +
+                                '</select>' +
+                            '</div>' +
+                            '<div class="form-group"><label>Antal decimaler</label><input type="number" min="0" max="10" id="t-decimals" value="' + (cfg.decimals !== undefined ? cfg.decimals : 2) + '"><small style="color:#64748b;">Avrunda till N decimaler</small></div>' +
+                        '</div>' +
+                        '<div id="t-scaling-fields" style="margin-top:8px;"></div>' +
+                        '<div id="t-formula-preview" style="background:#0f172a;border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:#64748b;"></div>' +
+                    '</div>' +
+                    '<div class="form-row">' +
                         '<div class="form-group"><label>Poll-intervall (ms)</label><input type="number" id="t-pollInterval" value="' + (cfg.pollInterval || 1000) + '"><small style="color:#64748b;">Hur ofta v&#228;rdet l&#228;ses</small></div>' +
+                        '<div class="form-group"><label>Enhetsmultiplikator</label><input type="number" step="0.0001" id="t-unitMultiplier" value="' + (cfg.unitMultiplier || 1) + '"><small style="color:#64748b;">T.ex. 3600 f&#246;r m&#179;/s &#8594; m&#179;/h</small></div>' +
                     '</div>' +
                     '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
                         '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Alternativ</div>' +
@@ -836,12 +902,37 @@
                             '</label>' +
                         '</div>' +
                     '</div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Databasloggning</div>' +
+                        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;font-size:13px;">' +
+                            '<input type="checkbox" id="t-logToDatabase" ' + (cfg.logToDatabase !== false ? 'checked' : '') + ' onchange="toggleLogInterval()">' +
+                            '<strong>Logga till databas</strong>' +
+                        '</label>' +
+                        '<div id="t-logIntervalRow" style="margin-top:4px;">' +
+                            '<div class="form-row-3">' +
+                                '<div class="form-group"><label>Loggningsintervall</label>' +
+                                    '<select id="t-logIntervalPreset" onchange="updateLogIntervalCustom()">' +
+                                        '<option value="0" ' + (!cfg.logInterval || cfg.logInterval===0 ? 'selected' : '') + '>Varje poll (realtid)</option>' +
+                                        '<option value="100">100 ms</option>' +
+                                        '<option value="1000">1 sekund</option>' +
+                                        '<option value="10000">10 sekunder</option>' +
+                                        '<option value="60000">1 minut</option>' +
+                                        '<option value="300000">5 minuter</option>' +
+                                        '<option value="600000">10 minuter</option>' +
+                                        '<option value="1800000">30 minuter</option>' +
+                                        '<option value="3600000">1 timme</option>' +
+                                        '<option value="21600000">6 timmar</option>' +
+                                        '<option value="86400000">24 timmar</option>' +
+                                        '<option value="custom">Custom (ms)</option>' +
+                                    '</select>' +
+                                '</div>' +
+                                '<div class="form-group"><label>Custom (ms)</label><input type="number" id="t-logIntervalCustom" value="' + (cfg.logInterval || 1000) + '" oninput="document.getElementById(\'t-logIntervalPreset\').value=\'custom\'" style="width:100%;"><small style="color:#64748b;">Ms. T.ex. 1000 = 1s, 60000 = 1min</small></div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
                     '<div class="form-row">' +
                         '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min, &#176;C, bar"></div>' +
-                        '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
-                    '</div>' +
-                    '<div style="background:#0f172a;border-radius:6px;padding:10px;margin-top:8px;font-size:12px;color:#64748b;">' +
-                        '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = (R&#229;v&#228;rde &times; ' + (cfg.scalingFactor || 1) + ') + ' + (cfg.offset || 0) +
+                    '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
                     '</div>' +
                     '<div class="modal-actions">' +
                         '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
@@ -850,6 +941,8 @@
                 );
                 if (!editId) autoSetQuantity();
                 autoFixAddress();
+                updateScalingFields();
+                toggleLogInterval();
             } else {
                 showModal(
                     '<h3>' + (editId ? 'Redigera' : 'Ny') + ' OPC UA-tagg</h3>' +
@@ -859,13 +952,91 @@
                         '<div class="form-group"><label>Samplingsintervall (ms)</label><input type="number" id="t-samplingInterval" value="' + (cfg.samplingInterval || 1000) + '"></div>' +
                         '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min"></div>' +
                     '</div>' +
+                    '<div class="form-row">' +
+                        '<div class="form-group"><label>Antal decimaler</label><input type="number" min="0" max="10" id="t-decimals" value="' + (cfg.decimals !== undefined ? cfg.decimals : 2) + '"></div>' +
+                        '<div class="form-group"><label>Enhetsmultiplikator</label><input type="number" step="0.0001" id="t-unitMultiplier" value="' + (cfg.unitMultiplier || 1) + '"></div>' +
+                    '</div>' +
                     '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Databasloggning</div>' +
+                        '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:10px;font-size:13px;">' +
+                            '<input type="checkbox" id="t-logToDatabase" ' + (cfg.logToDatabase !== false ? 'checked' : '') + ' onchange="toggleLogInterval()">' +
+                            '<strong>Logga till databas</strong>' +
+                        '</label>' +
+                        '<div id="t-logIntervalRow">' +
+                            '<div class="form-row-3">' +
+                                '<div class="form-group"><label>Loggningsintervall</label>' +
+                                    '<select id="t-logIntervalPreset" onchange="updateLogIntervalCustom()">' +
+                                        '<option value="0" ' + (!cfg.logInterval || cfg.logInterval===0 ? 'selected' : '') + '>Varje poll (realtid)</option>' +
+                                        '<option value="100">100 ms</option><option value="1000">1 sekund</option><option value="10000">10 sekunder</option>' +
+                                        '<option value="60000">1 minut</option><option value="300000">5 minuter</option><option value="600000">10 minuter</option>' +
+                                        '<option value="1800000">30 minuter</option><option value="3600000">1 timme</option>' +
+                                        '<option value="21600000">6 timmar</option><option value="86400000">24 timmar</option>' +
+                                        '<option value="custom">Custom (ms)</option>' +
+                                    '</select>' +
+                                '</div>' +
+                                '<div class="form-group"><label>Custom (ms)</label><input type="number" id="t-logIntervalCustom" value="' + (cfg.logInterval || 1000) + '" oninput="document.getElementById(\'t-logIntervalPreset\').value=\'custom\'" style="width:100%;"></div>' +
+                            '</div>' +
+                        '</div>' +
+                    '</div>' +
                     '<div class="modal-actions">' +
                         '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
                         '<button class="btn btn-primary" onclick="saveTag(' + connId + ',\'' + connType + '\',' + (editId||'null') + ')">Spara</button>' +
                     '</div>'
                 );
+                toggleLogInterval();
             }
+        }
+
+        function updateScalingFields() {
+            const modeEl = document.getElementById('t-scalingMode');
+            const fieldsEl = document.getElementById('t-scaling-fields');
+            const previewEl = document.getElementById('t-formula-preview');
+            if (!modeEl || !fieldsEl) return;
+            const mode = modeEl.value;
+            const cfg = window._editTagCfg || {};
+
+            let fields = '';
+            let formula = '';
+
+            if (mode === 'direct') {
+                fields = '<div style="color:#64748b;padding:8px;font-size:13px;">R&#229;v&#228;rde visas direkt, endast avrundning till antal decimaler ovan.</div>';
+                formula = '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = round(R&#229;v&#228;rde, N decimaler)';
+            } else if (mode === 'linear') {
+                fields = '<div class="form-row">' +
+                    '<div class="form-group"><label>Scaling Factor</label><input type="number" step="0.01" id="t-scaling" value="' + (cfg.scalingFactor || 1) + '"><small style="color:#64748b;">Multiplicera r&#229;v&#228;rdet</small></div>' +
+                    '<div class="form-group"><label>Offset</label><input type="number" step="0.01" id="t-offset" value="' + (cfg.offset || 0) + '"><small style="color:#64748b;">L&#228;gg till efter scaling</small></div>' +
+                '</div>';
+                formula = '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = (R&#229;v&#228;rde &times; scalingFactor) + offset';
+            } else if (mode === '4-20mA') {
+                fields = '<div class="form-row">' +
+                    '<div class="form-group"><label>Signal Min (mA)</label><input type="number" step="0.01" id="t-signalMin" value="' + (cfg.signalMin || 4) + '"></div>' +
+                    '<div class="form-group"><label>Signal Max (mA)</label><input type="number" step="0.01" id="t-signalMax" value="' + (cfg.signalMax || 20) + '"></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>M&#228;tomr&#229;de Min</label><input type="number" step="0.01" id="t-scaleMin" value="' + (cfg.scaleMin || 0) + '"></div>' +
+                    '<div class="form-group"><label>M&#228;tomr&#229;de Max</label><input type="number" step="0.01" id="t-scaleMax" value="' + (cfg.scaleMax || 160) + '"></div>' +
+                '</div>';
+                formula = '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = ((R&#229;v&#228;rde - ' + (cfg.signalMin||4) + ') / (' + (cfg.signalMax||20) + ' - ' + (cfg.signalMin||4) + ')) &times; (' + (cfg.scaleMax||160) + ' - ' + (cfg.scaleMin||0) + ') + ' + (cfg.scaleMin||0);
+            } else if (mode === '0-10V') {
+                fields = '<div class="form-row">' +
+                    '<div class="form-group"><label>Signal Min (V)</label><input type="number" step="0.01" id="t-signalMin" value="' + (cfg.signalMin || 0) + '"></div>' +
+                    '<div class="form-group"><label>Signal Max (V)</label><input type="number" step="0.01" id="t-signalMax" value="' + (cfg.signalMax || 10) + '"></div>' +
+                '</div>' +
+                '<div class="form-row">' +
+                    '<div class="form-group"><label>M&#228;tomr&#229;de Min</label><input type="number" step="0.01" id="t-scaleMin" value="' + (cfg.scaleMin || 0) + '"></div>' +
+                    '<div class="form-group"><label>M&#228;tomr&#229;de Max</label><input type="number" step="0.01" id="t-scaleMax" value="' + (cfg.scaleMax || 80) + '"></div>' +
+                '</div>';
+                formula = '<strong style="color:#94a3b8;">Formel:</strong> Slutv&#228;rde = ((R&#229;v&#228;rde - ' + (cfg.signalMin||0) + ') / (' + (cfg.signalMax||10) + ' - ' + (cfg.signalMin||0) + ')) &times; (' + (cfg.scaleMax||80) + ' - ' + (cfg.scaleMin||0) + ') + ' + (cfg.scaleMin||0);
+            } else if (mode === 'custom') {
+                fields = '<div class="form-group"><label>JavaScript-uttryck (anv&#228;nd <code style="color:#fbbf24;">value</code> och <code style="color:#fbbf24;">Math</code>)</label>' +
+                    '<textarea id="t-customExpression" rows="3" style="font-family:monospace;font-size:13px;" placeholder="T.ex.: ((value/1000 - 2) * 16 / 8 + 4 - 4) * 50 / 16">' + esc(cfg.customExpression || '') + '</textarea>' +
+                    '<small style="color:#64748b;">value = r&#229;v&#228;rdet fr&#229;n registret. Exempel: <code>Math.round(value * 3600)</code>, <code>(value / 0.01) - 273</code></small></div>';
+                formula = '<strong style="color:#94a3b8;">Custom uttryck:</strong> Anv&#228;nds direkt. S&#228;tt decimals f&#246;r avrundning efter&#229;t.';
+            }
+
+            fieldsEl.innerHTML = fields;
+            previewEl.innerHTML = formula;
         }
 
         function autoSetQuantity() {
@@ -1011,6 +1182,7 @@
         async function saveTag(connId, connType, editId) {
             let config;
             if (connType === 'modbus') {
+                const scalingMode = document.getElementById('t-scalingMode').value;
                 config = {
                     registerType: document.getElementById('t-registerType').value,
                     address: parseInt(document.getElementById('t-address').value) || 0,
@@ -1021,15 +1193,29 @@
                     addressOffset: document.getElementById('t-addressOffset').checked,
                     byteSwap: document.getElementById('t-byteSwap').checked,
                     wordSwap: document.getElementById('t-wordSwap').checked,
-                    scalingFactor: parseFloat(document.getElementById('t-scaling').value) || 1,
-                    offset: parseFloat(document.getElementById('t-offset').value) || 0,
+                    scalingMode: scalingMode,
+                    decimals: parseInt(document.getElementById('t-decimals').value) || 0,
+                    unitMultiplier: parseFloat(document.getElementById('t-unitMultiplier').value) || 1,
+                    scalingFactor: parseFloat(getFieldValue('t-scaling')) || 1,
+                    offset: parseFloat(getFieldValue('t-offset')) || 0,
+                    signalMin: parseFloat(getFieldValue('t-signalMin')) || null,
+                    signalMax: parseFloat(getFieldValue('t-signalMax')) || null,
+                    scaleMin: parseFloat(getFieldValue('t-scaleMin')) || null,
+                    scaleMax: parseFloat(getFieldValue('t-scaleMax')) || null,
+                    customExpression: getFieldValue('t-customExpression') || null,
                     pollInterval: parseInt(document.getElementById('t-pollInterval').value) || 1000,
+                    logToDatabase: document.getElementById('t-logToDatabase').checked,
+                    logInterval: getLogInterval(),
                     unit: document.getElementById('t-unit').value
                 };
             } else {
                 config = {
                     nodeId: document.getElementById('t-nodeId').value,
                     samplingInterval: parseInt(document.getElementById('t-samplingInterval').value) || 1000,
+                    decimals: parseInt(document.getElementById('t-decimals').value) || 0,
+                    unitMultiplier: parseFloat(document.getElementById('t-unitMultiplier').value) || 1,
+                    logToDatabase: document.getElementById('t-logToDatabase').checked,
+                    logInterval: getLogInterval(),
                     unit: document.getElementById('t-unit').value
                 };
             }

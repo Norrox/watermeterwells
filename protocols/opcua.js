@@ -88,8 +88,14 @@ class OpcuaConnection {
       );
 
       monitoredItem.on('changed', (dataValue) => {
-        const value = dataValue.value.value;
-        if (tag.onData) tag.onData(typeof value === 'bigint' ? Number(value) : value);
+        let value = dataValue.value.value;
+        if (typeof value === 'bigint') value = Number(value);
+
+        if (cfg.unitMultiplier) value *= parseFloat(cfg.unitMultiplier);
+        const decimals = cfg.decimals !== undefined ? parseInt(cfg.decimals) : null;
+        if (decimals !== null) value = parseFloat(value.toFixed(decimals));
+
+        if (tag.onData) tag.onData(value);
       });
 
       this.subscriptions[tag.id] = subscription;

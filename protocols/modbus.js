@@ -171,11 +171,74 @@ class ModbusConnection {
     const rawArray = Array.from(rawValues).map(v => v);
 
     const decodedValue = this.decodeValue(rawValues, cfg);
-    const scaling = parseFloat(cfg.scalingFactor) || 1;
-    const offset = parseFloat(cfg.offset) || 0;
-    const finalValue = decodedValue * scaling + offset;
+    const finalValue = this.applyScaling(decodedValue, cfg);
 
     return { value: finalValue, rawRegisters: rawArray, decodedRaw: decodedValue };
+  }
+
+  applyScaling(rawValue, cfg) {
+    const scalingMode = cfg.scalingMode || 'linear';
+    let value = rawValue;
+
+    switch (scalingMode) {
+      case 'direct':
+        // no scaling, just round
+        break;
+
+      case 'linear':
+        {
+          const factor = parseFloat(cfg.scalingFactor) || 1;
+          const offset = parseFloat(cfg.offset) || 0;
+          value = rawValue * factor + offset;
+        }
+        break;
+
+      case '4-20mA':
+        {
+          const signalMin = parseFloat(cfg.signalMin) || 4;
+          const signalMax = parseFloat(cfg.signalMax) || 20;
+          const scaleMin = parseFloat(cfg.scaleMin) || 0;
+          const scaleMax = parseFloat(cfg.scaleMax) || 100;
+          const ratio = (rawValue - signalMin) / (signalMax - signalMin);
+          value = Math.max(0, ratio) * (scaleMax - scaleMin) + scaleMin;
+        }
+        break;
+
+      case '0-10V':
+        {
+          const vMin = parseFloat(cfg.signalMin) || 0;
+          const vMax = parseFloat(cfg.signalMax) || 10;
+          const scaleMin = parseFloat(cfg.scaleMin) || 0;
+          const scaleMax = parseFloat(cfg.scaleMax) || 100;
+          const ratio = (rawValue - vMin) / (vMax - vMin);
+          value = Math.max(0, ratio) * (scaleMax - scaleMin) + scaleMin;
+        }
+        break;
+
+      case 'custom':
+        if (cfg.customExpression) {
+          try {
+            const expr = cfg.customExpression;
+            const fn = new Function('value', 'Math', 'return ' + expr);
+            value = fn(rawValue, Math);
+          } catch (e) {
+            // expression error, return raw
+          }
+        }
+        break;
+    }
+
+    if (cfg.unitMultiplier) {
+      value *= parseFloat(cfg.unitMultiplier);
+    }
+
+    const decimals = cfg.decimals !== undefined && cfg.decimals !== null ? parseInt(cfg.decimals) : null;
+    if (decimals !== null && !isNaN(decimals)) {
+      value = parseFloat(value.toFixed(decimals));
+      if (isNaN(value)) value = 0;
+    }
+
+    return value;
   }
 
   decodeValue(values, cfg) {
