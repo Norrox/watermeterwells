@@ -33,8 +33,8 @@ class ModbusConnection {
     this.reconnectTimer = null;
     this.config_ref = config;
     this.connId = null;
-    this._reconnecting = false;
     this._connectPromise = null;
+    this._lastReadError = {};
   }
 
   async connect() {
@@ -42,7 +42,6 @@ class ModbusConnection {
 
     this._connectPromise = new Promise((resolve, reject) => {
       if (this.socket && !this.socket.destroyed && this.connected) {
-        this._connectPromise = null;
         resolve();
         return;
       }
@@ -55,24 +54,20 @@ class ModbusConnection {
       this.client = new Modbus.client.TCP(this.socket, this.config.unitId);
 
       const timeoutId = setTimeout(() => {
-        this._connectPromise = null;
         this.socket.destroy();
         this._setStatus('error', 'Anslutningstimeout');
         reject(new Error('Connection timeout'));
       }, this.config.timeout);
 
-      this.socket.on('connect', () => {
+      this.socket.once('connect', () => {
         clearTimeout(timeoutId);
-        this._connectPromise = null;
         this.connected = true;
-        this._reconnecting = false;
         this._setStatus('connected');
         resolve();
       });
 
-      this.socket.on('error', (err) => {
+      this.socket.once('error', (err) => {
         clearTimeout(timeoutId);
-        this._connectPromise = null;
         this.connected = false;
         if (this.status !== 'stopped') {
           this._setStatus('error', err.message);
@@ -81,7 +76,6 @@ class ModbusConnection {
       });
 
       this.socket.on('close', () => {
-        this._connectPromise = null;
         this.connected = false;
         if (this.status !== 'stopped') {
           const now = Date.now();
@@ -95,7 +89,11 @@ class ModbusConnection {
       this.socket.connect({ host: this.config.host, port: this.config.port });
     });
 
-    return this._connectPromise;
+    try {
+      return await this._connectPromise;
+    } finally {
+      this._connectPromise = null;
+    }
   }
 
   _cleanupSocket() {
@@ -110,14 +108,13 @@ class ModbusConnection {
 
   async ensureConnected() {
     if (this.connected && this.socket && !this.socket.destroyed) return;
-    if (this._reconnecting) return;
-    this._reconnecting = true;
     this.connected = false;
-    try {
-      await this.connect();
-    } finally {
-      this._reconnecting = false;
-    }
+    return this.connect();
+  }
+
+  _isConnectionError(err) {
+    const msg = (err.message || String(err)).toLowerCase();
+    return msg.includes('closed') || msg.includes('econnreset') || msg.includes('timeout') || msg.includes('not connected');
   }
 
   startPolling(tags, connId) {
@@ -137,7 +134,15 @@ class ModbusConnection {
           if (tag.onError) tag.onError(null);
         } catch (err) {
           const msg = this.parseError(err, cfg);
-          console.error(`[Modbus] ${msg}`);
+          if (!this._isConnectionError(err)) {
+            const key = `${tag.id}`;
+            const now = Date.now();
+            const lastLog = this._lastReadError[key] || 0;
+            if (now - lastLog > 60000) {
+              this._lastReadError[key] = now;
+              console.error(`[Modbus] ${msg}`);
+            }
+          }
           if (tag.onError) tag.onError(msg);
         }
       }, interval);
@@ -184,7 +189,7 @@ class ModbusConnection {
     }
   }
 
-  async readRegister(cfg) {
+  async readRegister(cfg, _retry = true) {
     await this.ensureConnected();
 
     const registerType = cfg.registerType || 'holding';
@@ -211,6 +216,11 @@ class ModbusConnection {
           response = await this.client.readHoldingRegisters(address, quantity);
       }
     } catch (err) {
+      if (_retry && this._isConnectionError(err)) {
+        this.connected = false;
+        await this.ensureConnected();
+        return this.readRegister(cfg, false);
+      }
       throw new Error(this.parseError(err, cfg));
     }
 
