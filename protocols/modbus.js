@@ -50,6 +50,8 @@ class ModbusConnection {
       this._cleanupSocket();
       this._setStatus('connecting');
       this.socket = new net.Socket();
+      this.socket.setKeepAlive(true, 10000);
+      this.socket.setNoDelay(true);
       this.client = new Modbus.client.TCP(this.socket, this.config.unitId);
 
       const timeoutId = setTimeout(() => {
