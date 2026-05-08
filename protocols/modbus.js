@@ -33,19 +33,27 @@ class ModbusConnection {
     this.reconnectTimer = null;
     this.config_ref = config;
     this.connId = null;
+    this._reconnecting = false;
+    this._connectPromise = null;
   }
 
   async connect() {
-    return new Promise((resolve, reject) => {
-      if (this.socket && !this.socket.destroyed) {
-        if (this.connected) { resolve(); return; }
+    if (this._connectPromise) return this._connectPromise;
+
+    this._connectPromise = new Promise((resolve, reject) => {
+      if (this.socket && !this.socket.destroyed && this.connected) {
+        this._connectPromise = null;
+        resolve();
+        return;
       }
 
+      this._cleanupSocket();
       this._setStatus('connecting');
       this.socket = new net.Socket();
       this.client = new Modbus.client.TCP(this.socket, this.config.unitId);
 
       const timeoutId = setTimeout(() => {
+        this._connectPromise = null;
         this.socket.destroy();
         this._setStatus('error', 'Anslutningstimeout');
         reject(new Error('Connection timeout'));
@@ -53,37 +61,61 @@ class ModbusConnection {
 
       this.socket.on('connect', () => {
         clearTimeout(timeoutId);
+        this._connectPromise = null;
         this.connected = true;
+        this._reconnecting = false;
         this._setStatus('connected');
         resolve();
       });
 
       this.socket.on('error', (err) => {
         clearTimeout(timeoutId);
+        this._connectPromise = null;
         this.connected = false;
-        this._setStatus('error', err.message);
+        if (this.status !== 'stopped') {
+          this._setStatus('error', err.message);
+        }
         reject(err);
       });
 
       this.socket.on('close', () => {
+        this._connectPromise = null;
         this.connected = false;
         if (this.status !== 'stopped') {
           const now = Date.now();
-          if (now - this._lastCloseLog > 30000) {
+          if (now - this._lastCloseLog > 60000) {
             this._lastCloseLog = now;
-            console.error(`[Modbus] Socket stängdes oväntat — pollningen återansluter automatiskt`);
+            console.warn(`[Modbus] Socket stängdes — återansluter automatiskt`);
           }
         }
       });
 
       this.socket.connect({ host: this.config.host, port: this.config.port });
     });
+
+    return this._connectPromise;
+  }
+
+  _cleanupSocket() {
+    if (this.socket) {
+      try { this.socket.removeAllListeners(); } catch (e) {}
+      try { this.socket.destroy(); } catch (e) {}
+    }
+    this.socket = null;
+    this.client = null;
+    this.connected = false;
   }
 
   async ensureConnected() {
     if (this.connected && this.socket && !this.socket.destroyed) return;
+    if (this._reconnecting) return;
+    this._reconnecting = true;
     this.connected = false;
-    await this.connect();
+    try {
+      await this.connect();
+    } finally {
+      this._reconnecting = false;
+    }
   }
 
   startPolling(tags, connId) {
