@@ -35,6 +35,9 @@ class ModbusConnection {
     this.connId = null;
     this._connectPromise = null;
     this._lastReadError = {};
+    this._closeCount = 0;
+    this._closeWindow = 0;
+    this._warnedRapidReconnect = false;
   }
 
   async connect() {
@@ -79,9 +82,17 @@ class ModbusConnection {
         this.connected = false;
         if (this.status !== 'stopped') {
           const now = Date.now();
-          if (now - this._lastCloseLog > 60000) {
-            this._lastCloseLog = now;
+          if (now - this._closeWindow > 60000) {
+            this._closeWindow = now;
+            this._closeCount = 1;
+            this._warnedRapidReconnect = false;
             console.warn(`[Modbus] Socket stängdes — återansluter automatiskt`);
+          } else {
+            this._closeCount++;
+            if (this._closeCount >= 5 && !this._warnedRapidReconnect) {
+              this._warnedRapidReconnect = true;
+              console.warn(`[Modbus] Frekventa frånkopplingar (${this._closeCount} st på 60s) — kontrollera nätverk/enhet`);
+            }
           }
         }
       });
@@ -114,7 +125,7 @@ class ModbusConnection {
 
   _isConnectionError(err) {
     const msg = (err.message || String(err)).toLowerCase();
-    return msg.includes('closed') || msg.includes('econnreset') || msg.includes('timeout') || msg.includes('not connected');
+    return msg.includes('closed') || msg.includes('econnreset') || msg.includes('timed') || msg.includes('not connected');
   }
 
   startPolling(tags, connId) {
