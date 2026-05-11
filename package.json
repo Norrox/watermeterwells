@@ -1,5 +1,5 @@
 {
-  "name": "watermeterwells",
+  "name": "floda",
   "version": "1.0.0",
   "description": "Industriell logger for flow monitoring and meter readings",
   "main": "server.js",

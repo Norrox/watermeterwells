@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Industriell Logger - Dashboard & Admin</title>
+    <title>Flöda - Dashboard & Admin</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -173,7 +173,7 @@
     <div class="app">
         <nav class="sidebar">
             <div class="sidebar-brand">
-                <h1>WaterMeterWells</h1>
+                <h1>Flöda</h1>
                 <small>By CF Digital AB</small>
             </div>
             <div class="sidebar-nav">
@@ -1188,6 +1188,14 @@
                                 '</div>' +
                                 '<div class="form-group"><label>Custom (ms)</label><input type="number" id="t-logIntervalCustom" value="' + (cfg.logInterval || 1000) + '" oninput="document.getElementById(\'t-logIntervalPreset\').value=\'custom\'" style="width:100%;"></div>' +
                             '</div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Gr\u00e4nsv\u00e4rdesfiltrering</div>' +
+                        '<p style="color:#64748b;font-size:12px;margin-bottom:10px;">V\u00e4rden utanf\u00f6r detta intervall loggas <strong>inte</strong> till databasen (live-v\u00e4rdet visas \u00e4nd\u00e5). L\u00e4mna tomt f\u00f6r att logga alla v\u00e4rden.</p>' +
+                        '<div class="form-row">' +
+                            '<div class="form-group"><label>Min v\u00e4rde</label><input type="number" step="any" id="t-minValue" value="' + (cfg.minValue !== undefined ? cfg.minValue : '') + '" placeholder="T.ex. 0"></div>' +
+                            '<div class="form-group"><label>Max v\u00e4rde</label><input type="number" step="any" id="t-maxValue" value="' + (cfg.maxValue !== undefined ? cfg.maxValue : '') + '" placeholder="T.ex. 50"></div>' +
                         '</div>' +
                     '</div>' +
                     '<div class="modal-actions">' +
