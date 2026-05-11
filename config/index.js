@@ -1,4 +1,5 @@
 module.exports = {
+  host: process.env.HOST || '0.0.0.0',
   port: parseInt(process.env.PORT) || 3000,
   demoMode: (process.env.DEMO_MODE || 'true') === 'true',
 

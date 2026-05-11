@@ -15,8 +15,8 @@ async function boot() {
   collector.start();
   scheduler.start();
 
-  const server = app.listen(config.port, () => {
-    console.log(`[Boot] Webserver aktiv på http://localhost:${config.port}`);
+  const server = app.listen(config.port, config.host, () => {
+    console.log(`[Boot] Webserver aktiv på http://${config.host}:${config.port}`);
   });
   server.setTimeout(30000);
 
