@@ -6,6 +6,7 @@ const { OpcuaConnection } = require('../protocols/opcua');
 
 const activeConnections = new Map();
 const lastLogTimes = new Map();
+const lastRejectionWarn = new Map();
 
 function shouldLog(tagId, tagConfig) {
   if (!tagConfig.logToDatabase) return false;
@@ -81,9 +82,39 @@ async function startConnection(id) {
         const value = typeof result === 'object' && result.value !== undefined ? result.value : result;
         const rawValue = typeof result === 'object' && result.decodedRaw !== undefined ? result.decodedRaw : null;
         await tagModel.updateLastValueWithRaw(tag.id, value, rawValue);
+
+        const numValue = Number(value);
+        if (!Number.isFinite(numValue)) {
+          await tagModel.updateError(tag.id, 'Ej numeriskt värde');
+          return;
+        }
+
+        const minVal = tagConfig.minValue;
+        const maxVal = tagConfig.maxValue;
+        let outOfRange = false;
+
+        if (minVal !== undefined && minVal !== null && !isNaN(Number(minVal)) && numValue < Number(minVal)) {
+          outOfRange = true;
+        }
+        if (maxVal !== undefined && maxVal !== null && !isNaN(Number(maxVal)) && numValue > Number(maxVal)) {
+          outOfRange = true;
+        }
+
+        if (outOfRange) {
+          const key = tag.id;
+          const now = Date.now();
+          const lastWarn = lastRejectionWarn.get(key) || 0;
+          if (now - lastWarn > 60000) {
+            lastRejectionWarn.set(key, now);
+            console.warn(`[Filter] ${conn.name}/${tag.name}: värdet ${numValue} utanför gräns (min ${minVal ?? '—'}, max ${maxVal ?? '—'}) — loggas ej`);
+          }
+          await tagModel.updateError(tag.id, `Utanför gräns: ${numValue} (max ${maxVal ?? '—'})`);
+          return;
+        }
+
         if (shouldLog(tag.id, tagConfig)) {
           const source = `${conn.name}_${tag.name}`;
-          await flowLog.insert(value, source);
+          await flowLog.insert(numValue, source);
         }
       },
       onError: async (errorMsg) => {

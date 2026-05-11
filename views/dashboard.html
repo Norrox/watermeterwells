@@ -174,7 +174,7 @@
         <nav class="sidebar">
             <div class="sidebar-brand">
                 <h1>WaterMeterWells</h1>
-                <small>Industriell Logger</small>
+                <small>By CF Digital AB</small>
             </div>
             <div class="sidebar-nav">
                 <a class="active" data-page="dashboard"><span class="icon">&#9632;</span> Dashboard</a>
@@ -1105,6 +1105,14 @@
                             '</div>' +
                         '</div>' +
                     '</div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Gr\u00e4nsv\u00e4rdesfiltrering</div>' +
+                        '<p style="color:#64748b;font-size:12px;margin-bottom:10px;">V\u00e4rden utanf\u00f6r detta intervall loggas <strong>inte</strong> till databasen (live-v\u00e4rdet visas \u00e4nd\u00e5). L\u00e4mna tomt f\u00f6r att logga alla v\u00e4rden.</p>' +
+                        '<div class="form-row">' +
+                            '<div class="form-group"><label>Min v\u00e4rde</label><input type="number" step="any" id="t-minValue" value="' + (cfg.minValue !== undefined ? cfg.minValue : '') + '" placeholder="T.ex. 0"></div>' +
+                            '<div class="form-group"><label>Max v\u00e4rde</label><input type="number" step="any" id="t-maxValue" value="' + (cfg.maxValue !== undefined ? cfg.maxValue : '') + '" placeholder="T.ex. 50"></div>' +
+                        '</div>' +
+                    '</div>' +
                     '<div class="form-row">' +
                         '<div class="form-group"><label>Enhet</label><input id="t-unit" value="' + esc(cfg.unit || '') + '" placeholder="T.ex. L/min, &#176;C, bar"></div>' +
                     '<div class="form-group"><label><input type="checkbox" id="t-enabled" ' + (!tag || tag.enabled ? 'checked' : '') + '> Aktiverad</label></div>' +
@@ -1452,6 +1460,8 @@
                     pollInterval: parseInt(document.getElementById('t-pollInterval').value) || 1000,
                     logToDatabase: document.getElementById('t-logToDatabase').checked,
                     logInterval: getLogInterval(),
+                    minValue: (() => { const v = getFieldValue('t-minValue'); return v !== '' && v !== null ? Number(v) : null; })(),
+                    maxValue: (() => { const v = getFieldValue('t-maxValue'); return v !== '' && v !== null ? Number(v) : null; })(),
                     unit: document.getElementById('t-unit').value
                 };
             } else {
@@ -1480,6 +1490,8 @@
                     customExpression: getFieldValue('t-customExpression') || null,
                     logToDatabase: document.getElementById('t-logToDatabase').checked,
                     logInterval: getLogInterval(),
+                    minValue: (() => { const v = getFieldValue('t-minValue'); return v !== '' && v !== null ? Number(v) : null; })(),
+                    maxValue: (() => { const v = getFieldValue('t-maxValue'); return v !== '' && v !== null ? Number(v) : null; })(),
                     unit: document.getElementById('t-unit').value
                 };
             }
@@ -2510,11 +2522,19 @@
                 '<div class="form-row">' +
                     '<div class="form-group"><label>Varnings-gr&#228;ns l&#229;g</label><input type="number" step="0.1" id="dw-warnLow" value="' + (cfg.warnLow || '') + '"></div>' +
                     '<div class="form-group"><label>Varnings-gr&#228;ns h&#246;g</label><input type="number" step="0.1" id="dw-warnHigh" value="' + (cfg.warnHigh || '') + '"></div>' +
-                '</div>' +
-                '<div class="modal-actions">' +
-                    '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
-                    '<button class="btn btn-primary" onclick="updateDashboardWidget(' + dashboardId + ',' + widgetId + ')">Spara</button>' +
-                '</div>'
+                    '</div>' +
+                    '<div style="background:#0f172a;border-radius:8px;padding:14px;margin:12px 0;">' +
+                        '<div style="font-size:13px;font-weight:600;color:#94a3b8;margin-bottom:10px;">Gr\u00e4nsv\u00e4rdesfiltrering</div>' +
+                        '<p style="color:#64748b;font-size:12px;margin-bottom:10px;">V\u00e4rden utanf\u00f6r detta intervall loggas <strong>inte</strong> till databasen (live-v\u00e4rdet visas \u00e4nd\u00e5). L\u00e4mna tomt f\u00f6r att logga alla v\u00e4rden.</p>' +
+                        '<div class="form-row">' +
+                            '<div class="form-group"><label>Min v\u00e4rde</label><input type="number" step="any" id="t-minValue" value="' + (cfg.minValue !== undefined ? cfg.minValue : '') + '" placeholder="T.ex. 0"></div>' +
+                            '<div class="form-group"><label>Max v\u00e4rde</label><input type="number" step="any" id="t-maxValue" value="' + (cfg.maxValue !== undefined ? cfg.maxValue : '') + '" placeholder="T.ex. 50"></div>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="modal-actions">' +
+                        '<button class="btn btn-secondary" onclick="closeModal()">Avbryt</button>' +
+                        '<button class="btn btn-primary" onclick="saveTag(' + connId + ',\'' + connType + '\',' + (editId||'null') + ')">Spara</button>' +
+                    '</div>'
             );
         }
 
