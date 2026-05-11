@@ -23,21 +23,81 @@ class ModbusConnection {
       timeout: parseInt(config.timeout) || 5000
     };
     this.connected = false;
-    this._lastCloseLog = 0;
     this.onStatusChange = onStatusChange || (() => {});
     this.socket = null;
     this.client = null;
-    this.timers = {};
     this.status = 'stopped';
     this.tags = [];
-    this.reconnectTimer = null;
-    this.config_ref = config;
     this.connId = null;
     this._connectPromise = null;
     this._lastReadError = {};
-    this._closeCount = 0;
-    this._closeWindow = 0;
-    this._warnedRapidReconnect = false;
+    this.config_ref = config;
+
+    this.reconnectTimer = null;
+    this._pollTimer = null;
+
+    this._baseReconnectDelay = 1000;
+    this._reconnectDelay = 1000;
+    this._maxReconnectDelay = 30000;
+    this._consecutiveFailures = 0;
+    this._circuitBreakerThreshold = 10;
+    this._circuitBreakerCooldown = 60000;
+    this._circuitOpen = false;
+    this._isReconnecting = false;
+    this._reconnectScheduled = false;
+  }
+
+  _resetReconnectState() {
+    this._reconnectDelay = this._baseReconnectDelay;
+    this._consecutiveFailures = 0;
+    this._circuitOpen = false;
+    this._isReconnecting = false;
+    this._reconnectScheduled = false;
+  }
+
+  _cleanupSocket() {
+    if (this.socket) {
+      try { this.socket.removeAllListeners(); } catch (e) {}
+      try { this.socket.destroy(); } catch (e) {}
+    }
+    this.socket = null;
+    this.client = null;
+    this.connected = false;
+  }
+
+  _scheduleReconnect() {
+    if (this._isReconnecting || this.status === 'stopped') return;
+    if (this._reconnectScheduled) return;
+
+    this._reconnectScheduled = true;
+    this._consecutiveFailures++;
+
+    let delay;
+    if (this._consecutiveFailures >= this._circuitBreakerThreshold) {
+      delay = this._circuitBreakerCooldown;
+      if (!this._circuitOpen) {
+        this._circuitOpen = true;
+        console.warn(`[Modbus] Circuit breaker öppnad — ${this._consecutiveFailures} misslyckade försök, väntar ${delay / 1000}s`);
+      }
+    } else {
+      delay = this._reconnectDelay;
+      this._reconnectDelay = Math.min(this._reconnectDelay * 2, this._maxReconnectDelay);
+      console.warn(`[Modbus] Återanslutning om ${Math.round(delay / 1000)}s (försök ${this._consecutiveFailures})`);
+    }
+
+    this.reconnectTimer = setTimeout(async () => {
+      this._reconnectScheduled = false;
+      this._isReconnecting = true;
+      try {
+        await this.connect();
+        const attempts = this._consecutiveFailures;
+        this._resetReconnectState();
+        console.log(`[Modbus] Återansluten efter ${attempts} försök`);
+      } catch (err) {
+        this._isReconnecting = false;
+        this._scheduleReconnect();
+      }
+    }, delay);
   }
 
   async connect() {
@@ -81,18 +141,11 @@ class ModbusConnection {
       this.socket.on('close', () => {
         this.connected = false;
         if (this.status !== 'stopped') {
-          const now = Date.now();
-          if (now - this._closeWindow > 60000) {
-            this._closeWindow = now;
-            this._closeCount = 1;
-            this._warnedRapidReconnect = false;
-            console.warn(`[Modbus] Socket stängdes — återansluter automatiskt`);
+          if (this._pollTimer) {
+            console.warn(`[Modbus] Socket stängdes — schemalägger återanslutning`);
+            this._scheduleReconnect();
           } else {
-            this._closeCount++;
-            if (this._closeCount >= 5 && !this._warnedRapidReconnect) {
-              this._warnedRapidReconnect = true;
-              console.warn(`[Modbus] Frekventa frånkopplingar (${this._closeCount} st på 60s) — kontrollera nätverk/enhet`);
-            }
+            console.warn(`[Modbus] Socket stängdes`);
           }
         }
       });
@@ -107,18 +160,9 @@ class ModbusConnection {
     }
   }
 
-  _cleanupSocket() {
-    if (this.socket) {
-      try { this.socket.removeAllListeners(); } catch (e) {}
-      try { this.socket.destroy(); } catch (e) {}
-    }
-    this.socket = null;
-    this.client = null;
-    this.connected = false;
-  }
-
   async ensureConnected() {
     if (this.connected && this.socket && !this.socket.destroyed) return;
+    if (this._isReconnecting || this._reconnectScheduled) return;
     this.connected = false;
     return this.connect();
   }
@@ -133,30 +177,60 @@ class ModbusConnection {
     this.connId = connId;
     this.stopPolling();
 
-    for (const tag of this.tags) {
-      const cfg = typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config;
-      const interval = parseInt(cfg.pollInterval) || 1000;
+    this._reconnectScheduled = false;
+    this._isReconnecting = false;
 
-      this.timers[tag.id] = setInterval(async () => {
+    if (this.tags.length === 0) return;
+
+    const interval = this.tags.reduce((min, tag) => {
+      const cfg = typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config;
+      const t = parseInt(cfg.pollInterval) || 1000;
+      return Math.min(min, t);
+    }, Infinity);
+
+    this._pollTimer = setInterval(async () => {
+      if (this._isReconnecting || this._reconnectScheduled) return;
+      if (!this.connected) {
+        this._scheduleReconnect();
+        return;
+      }
+
+      for (const tag of this.tags) {
+        const cfg = typeof tag.config === 'string' ? JSON.parse(tag.config) : tag.config;
         try {
-          await this.ensureConnected();
           const result = await this.readRegister(cfg);
           if (tag.onData) tag.onData(result);
           if (tag.onError) tag.onError(null);
         } catch (err) {
+          if (this._isConnectionError(err)) {
+            this.connected = false;
+            if (tag.onError) tag.onError('Anslutningsfel — återansluter');
+            this._scheduleReconnect();
+            return;
+          }
           const msg = this.parseError(err, cfg);
-          if (!this._isConnectionError(err)) {
-            const key = `${tag.id}`;
-            const now = Date.now();
-            const lastLog = this._lastReadError[key] || 0;
-            if (now - lastLog > 60000) {
-              this._lastReadError[key] = now;
-              console.error(`[Modbus] ${msg}`);
-            }
+          const key = `${tag.id}`;
+          const now = Date.now();
+          const lastLog = this._lastReadError[key] || 0;
+          if (now - lastLog > 60000) {
+            this._lastReadError[key] = now;
+            console.error(`[Modbus] ${msg}`);
           }
           if (tag.onError) tag.onError(msg);
         }
-      }, interval);
+      }
+    }, interval);
+  }
+
+  stopPolling() {
+    if (this._pollTimer) {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      this._reconnectScheduled = false;
     }
   }
 
@@ -189,18 +263,7 @@ class ModbusConnection {
     return `Adress ${address}: ${desc}${hint}`;
   }
 
-  stopPolling() {
-    for (const id of Object.keys(this.timers)) {
-      clearInterval(this.timers[id]);
-    }
-    this.timers = {};
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-  }
-
-  async readRegister(cfg, _retry = true) {
+  async readRegister(cfg) {
     await this.ensureConnected();
 
     const registerType = cfg.registerType || 'holding';
@@ -227,12 +290,10 @@ class ModbusConnection {
           response = await this.client.readHoldingRegisters(address, quantity);
       }
     } catch (err) {
-      if (_retry && this._isConnectionError(err)) {
+      if (this._isConnectionError(err)) {
         this.connected = false;
-        await this.ensureConnected();
-        return this.readRegister(cfg, false);
       }
-      throw new Error(this.parseError(err, cfg));
+      throw err;
     }
 
     const rawValues = response.response._body._valuesAsArray || response.response._body._values;
@@ -334,12 +395,12 @@ class ModbusConnection {
 
   disconnect() {
     this.stopPolling();
-    this.connected = false;
-    if (this.socket) {
-      this.socket.destroy();
-      this.socket = null;
-      this.client = null;
+    this._resetReconnectState();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+    this._cleanupSocket();
     this._setStatus('stopped');
   }
 

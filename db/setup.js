@@ -1,5 +1,18 @@
+const mariadb = require('mariadb');
+const config = require('../config');
 const pool = require('./pool');
 const bcrypt = require('bcrypt');
+
+async function ensureDatabase() {
+  const conn = await mariadb.createConnection({
+    host: config.db.host,
+    user: config.db.user,
+    password: config.db.password
+  });
+  await conn.query(`CREATE DATABASE IF NOT EXISTS \`${config.db.database}\``);
+  await conn.end();
+  console.log(`[DB] Databas '${config.db.database}' är redo.`);
+}
 
 const FLOW_LOGS_TABLE = `
   CREATE TABLE IF NOT EXISTS flow_logs (
@@ -88,6 +101,8 @@ const DASHBOARD_WIDGETS_TABLE = `
 `;
 
 async function setupDatabase() {
+  await ensureDatabase();
+
   let conn;
   try {
     conn = await pool.getConnection();
